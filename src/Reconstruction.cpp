@@ -15,10 +15,6 @@ Reconstruction::Reconstruction(Eigen::Vector3i& volumeSize) {
 	isOnlyTrackingOn_ = false;
 	stopTracking_ = false;
 
-	showRGBMap_ = false;
-	showDepthMap_ = false;
-	showRaycasting_ = false;
-
 	headPoseEstimationOk = false;
 
 	image_ = new Image(640, 480);
@@ -44,22 +40,6 @@ Reconstruction::Reconstruction(Eigen::Vector3i& volumeSize) {
 
 	previousDepthData = new unsigned short[640 * 480];
 
-}
-
-void Reconstruction::setShowCloud (bool showCloud) {	
-	this->showCloud_ = showCloud;
-}
-
-void Reconstruction::setShowRaycasting(bool showRaycasting) {
-	this->showRaycasting_ = showRaycasting;
-}
-
-void Reconstruction::setShowRGBMap(bool showRGBMap) {
-	this->showRGBMap_ = showRGBMap;
-}
-
-void Reconstruction::setShowDepthMap(bool showDepthMap) {
-	this->showDepthMap_ = showDepthMap;
 }
 
 void Reconstruction::savePointCloud() {

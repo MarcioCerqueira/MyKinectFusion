@@ -102,6 +102,12 @@ bool isHeadPoseEstimationEnabled = false;
 bool hasFaceDetection = false;
 bool faceDetected = false;
 bool shader=true;
+
+bool showCloud = false;
+bool showRaycasting = true;
+bool showDepthMap = true;
+bool showRGBMap = true;
+
 //
 // Global handles for the currently active program object, with its two shader objects
 //
@@ -113,6 +119,8 @@ GLuint shaderVS, shaderFS, shaderProg[3];   // handles to objects
 GLint  linked;
 
 int w1 = 1, w2 = 0, w3 = 120; 
+int workAround = 0;
+
 void printHelp() {
 
 	std::cout << "Help " << std::endl;
@@ -218,10 +226,6 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 	int begin = 0;
 	int end = 0;
 	int threshold = 5000;
-	bool showCloud = false;
-	bool showRaycasting = true;
-	bool showDepthMap = true;
-	bool showRGBMap = true;
 	
   if(pcl::console::find_argument(argc, argv, "--cloud") >= 0) {
 	showCloud = true;
@@ -270,10 +274,6 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 #endif
 
 	//Initialize reconstruction with arguments
-	reconstruction->setShowCloud(showCloud);
-	reconstruction->setShowRGBMap(showRGBMap);
-	reconstruction->setShowDepthMap(showDepthMap);
-	reconstruction->setShowRaycasting(showRaycasting);
 	reconstruction->setThreshold(threshold);
 
 }
@@ -426,9 +426,6 @@ void displayARDataFromVolumeRendering()
 
 void displayCloud(bool globalCoordinates = true)
 {
-
-	if(meshVBO[0] == 0)
-		glGenBuffers(4, meshVBO);
 	
 	reconstruction->getPointCloud(pointCloud, globalCoordinates);
 	reconstruction->getNormalVector(normalVector, globalCoordinates);
@@ -453,9 +450,14 @@ void displayCloud(bool globalCoordinates = true)
 	glLoadIdentity(); 
 	
 	myGLCloudViewer->configureAmbient(reconstruction->getThreshold(), pointCloud);
-	myGLCloudViewer->drawMesh(meshVBO, reconstruction->getCurrentTranslation(), reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), 
-		rotationAngles, shader, globalCoordinates);
-	
+	if(reconstruction->getGlobalTime() > 1)
+		myGLCloudViewer->drawMesh(meshVBO, reconstruction->getCurrentTranslation(), reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), 
+			rotationAngles, shader, globalCoordinates);
+	if(workAround == 1) {
+		myGLCloudViewer->drawMesh(meshVBO, Eigen::Vector3f::Zero(), Eigen::Matrix3f::Identity(), reconstruction->getInitialTranslation(), rotationAngles, shader, 
+			globalCoordinates);
+		workAround = 2;
+	}
 }
 
 void display()
@@ -465,21 +467,23 @@ void display()
 
 	if(!AR)
 	{
-		if(reconstruction->showDepthMap())
+		if(workAround == 1)
+			displayCloud();
+		if(showDepthMap)
 			displayDepthData();
-		if(reconstruction->showRGBMap())
+		if(showRGBMap)
 			displayRGBData();
-		if(reconstruction->showRaycastedMap())
+		if(showRaycasting && reconstruction->hasImage())
 			displayRaycastedData();
 		//if(reconstruction->isOnlyTrackingOn())
 			//displayARDataFromVolume();
-		if(reconstruction->showCloud())
+		if(showCloud && reconstruction->hasImage())
 			if(ARPolygonal)
 				displayCloud(!reconstruction->isOnlyTrackingOn());
 			else
 				displayCloud();
 	} else {
-		if(reconstruction->showCloud())
+		if(showCloud)
 			displayCloud(ARConfiguration);
 		if(ARPolygonal)
 			displayARDataFromOBJFile();
@@ -525,6 +529,8 @@ void idle()
 			reconstruction->run(kinect->getRGBImage(), kinect->getDepthImage());
 		if(!ARConfiguration && !AR && integrateColors)
 			coloredReconstructionMediator->updateColorVolume(reconstruction);
+		if(workAround != 2)
+			workAround = 1;
 	}
 
 }
@@ -706,6 +712,8 @@ void initGL()
 
 	if(texVBO[0] == 0)
 		glGenTextures(10, texVBO);
+	if(meshVBO[0] == 0)
+		glGenBuffers(4, meshVBO);
 
 	myGLImageViewer = new MyGLImageViewer();
 	myGLCloudViewer = new MyGLCloudViewer();

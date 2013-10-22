@@ -51,10 +51,6 @@ public:
 	void enableOnlyTracking(bool stopFaceDetection = true);
 	void stopTracking(bool stop) { stopTracking_ = stop; }
 
-	void setShowCloud (bool showCloud);
-	void setShowRGBMap(bool showRGBMap);
-	void setShowRaycasting(bool showRaycasting);
-	void setShowDepthMap(bool showDepthMap);
 	void setThreshold(int threshold) { threshold_ = threshold; }
 	void setHeadPoseEstimationMediatorPointer(void *pointer) { 
 		headPoseEstimationMediator = pointer; 
@@ -66,6 +62,7 @@ public:
 	unsigned short* getCurrentDepthMap() { return (unsigned short*)depthMap.data; }
 	const unsigned char* getRGBMap() { return (const unsigned char*)rgbMap.data; }
 	unsigned char* getRaycastImage();
+	bool hasImage() { return hasImage_; }
 	void getPointCloud(float *pointCloud, bool globalCoordinates = true);
 	void getNormalVector(float *normalVector, bool globalCoordinates = true);
 	Eigen::Vector3f getCurrentTranslation() { return tvecs_[globalTime - 1]; }
@@ -85,17 +82,6 @@ public:
 	void incrementGlobalTime() { globalTime++; }
 	Eigen::Vector3f getGlobalCentroid() { return globalPreviousPointCloud_->getCentroid(); }
 
-	bool showRGBMap() { return showRGBMap_; }
-	bool showDepthMap() { return showDepthMap_; }
-	bool showCloud() { return showCloud_; }
-	bool showRaycastedMap() { 
-		if(hasImage_ && showRaycasting_)
-			return true;
-		else
-			return false; 
-	}
-
-	
 	void savePointCloud();
 	bool hasErrorVisualization() { return hasErrorVisualization_; }
 	bool isOnlyTrackingStopped() { return stopTracking_; }
@@ -121,11 +107,6 @@ private:
 	bool isOnlyTrackingOn_;
 	bool stopTracking_;
 
-	bool showCloud_;
-	bool showRaycasting_;
-	bool showDepthMap_;
-	bool showRGBMap_;
-
 	int threshold_;
 
 	char *RAFileName_;
@@ -146,9 +127,9 @@ private:
 	std::vector<KinfuTracker::RGB> view_host_;
 	
 	DeviceArray2D<pcl::PointXYZ> cloudDevice_;
-	std::vector<pcl::PointXYZ> cloudHost_;
+	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> cloudHost_;
 	DeviceArray2D<pcl::PointXYZ> normalsDevice_;
-	std::vector<pcl::PointXYZ> normalsHost_;
+	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> normalsHost_;
 	
 	device::DepthMap depthDevice;
 	KinfuTracker::View rgbDevice;
