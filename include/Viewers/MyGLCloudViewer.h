@@ -27,7 +27,7 @@ public:
 	void loadIndices(int *indices, float *pointCloud);
 	void loadVBOs(GLuint *meshVBO, int *indices, float *pointCloud, float *normalVector);
 	void setEyePosition(int xEye, int yEye, int zEye);
-	void setOBJScale(float scale);
+	void setOBJScale(float* scale);
 	void setProgram(GLuint shaderProg);
 	//void configure3DTexture(
 	void updateModelViewMatrix(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, 

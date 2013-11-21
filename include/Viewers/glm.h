@@ -118,7 +118,7 @@ glmDimensions(GLMmodel* model, GLfloat* dimensions);
  * scale - scalefactor (0.5 = half as large, 2.0 = twice as large)
  */
 GLvoid
-glmScale(GLMmodel* model, GLfloat scale);
+glmScale(GLMmodel* model, GLfloat* scale);
 
 /* glmReverseWinding: Reverse the polygon winding for all polygons in
  * this model.  Default winding is counter-clockwise.  Also changes

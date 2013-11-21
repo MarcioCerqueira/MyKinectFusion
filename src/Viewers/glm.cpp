@@ -880,14 +880,14 @@ glmDimensions(GLMmodel* model, GLfloat* dimensions)
  * scale - scalefactor (0.5 = half as large, 2.0 = twice as large)
  */
 GLvoid
-glmScale(GLMmodel* model, GLfloat scale)
+glmScale(GLMmodel* model, GLfloat* scale)
 {
     GLuint i;
     
     for (i = 1; i <= model->numvertices; i++) {
-        model->vertices[3 * i + 0] *= scale;
-        model->vertices[3 * i + 1] *= scale;
-        model->vertices[3 * i + 2] *= scale;
+        model->vertices[3 * i + 0] *= scale[0];
+        model->vertices[3 * i + 1] *= scale[1];
+        model->vertices[3 * i + 2] *= scale[2];
     }
 }
 

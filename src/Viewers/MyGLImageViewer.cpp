@@ -4,16 +4,12 @@ MyGLImageViewer::MyGLImageViewer()
 {
 	depthData = (unsigned char*)malloc(640 * 480 * 3 * sizeof(unsigned char));
 	frameBuffer = (unsigned char*)malloc(640 * 480 * 3 * sizeof(unsigned char));
-	depthBuffer = (float*)malloc(640 * 480 * sizeof(float));
-	auxDepthBuffer = (float*)malloc(640 * 480 * sizeof(float));
 }
 
 MyGLImageViewer::~MyGLImageViewer()
 {
 	delete [] depthData;
 	delete [] frameBuffer;
-	delete [] depthBuffer;
-	delete [] auxDepthBuffer;
 }
 
 void MyGLImageViewer::loadDepthTexture(unsigned short *data, GLuint *texVBO, int index, int threshold, int windowWidth, int windowHeight)
@@ -38,34 +34,20 @@ void MyGLImageViewer::loadDepthTexture(unsigned short *data, GLuint *texVBO, int
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, windowWidth/2, windowHeight/2, 
 		0, GL_RGB, GL_UNSIGNED_BYTE, depthData);
 }
-
-void MyGLImageViewer::loadDepthBufferTexture(GLuint *texVBO, int index, int x, int y, int width, int height)
+	
+void MyGLImageViewer::loadDepthComponentTexture(unsigned short *data, GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
 
-	glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, auxDepthBuffer);
-
-
-	int xp, yp, inversePixel;
-	for(int pixel = 0; pixel < (640 * 480); pixel++) {
-		xp = pixel % 640;
-		yp = pixel / 640;
-		inversePixel = (480 - yp) * 640 + xp;
-		auxDepthBuffer[inversePixel] = (auxDepthBuffer[inversePixel] - 0.999) * 1000;
-		depthBuffer[pixel] = auxDepthBuffer[inversePixel];
-	}
-
 	glBindTexture(GL_TEXTURE_2D, texVBO[index]);
-	
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height,  
-		0, GL_LUMINANCE, GL_FLOAT, depthBuffer);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, windowWidth/2, windowHeight/2, 0, GL_DEPTH_COMPONENT, GL_FLOAT, data);
 
 }
-	
+
 void MyGLImageViewer::loadRGBTexture(const unsigned char *data, GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
 
@@ -76,34 +58,23 @@ void MyGLImageViewer::loadRGBTexture(const unsigned char *data, GLuint *texVBO, 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, windowWidth/2, windowHeight/2,  
-		0, GL_RGB, GL_UNSIGNED_BYTE, data);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, windowWidth/2, windowHeight/2, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
 
 }
 
 void MyGLImageViewer::loadFrameBufferTexture(GLuint *texVBO, int index, int x, int y, int width, int height)
 {
 
-	glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, depthData);
-	int xp, yp, inversePixel;
-	for(int pixel = 0; pixel < (640 * 480); pixel++) {
-		xp = pixel % 640;
-		yp = pixel / 640;
-		inversePixel = (480 - yp) * 640 + xp;
-		for(int ch = 0; ch < 3; ch++) {
-			frameBuffer[pixel * 3 + ch] = depthData[inversePixel * 3 + ch];
-		}
-	}
+	glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer);
 	
 	glBindTexture(GL_TEXTURE_2D, texVBO[index]);
-	
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height,  
-		0, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer);
+
 }
 
 void MyGLImageViewer::loadARTexture(const unsigned char *rgbMap, unsigned char *data, GLuint *texVBO, int index, int windowWidth, 
@@ -203,7 +174,7 @@ void MyGLImageViewer::drawRGBTexture(GLuint *texVBO, int index, int windowWidth,
 
 
 void MyGLImageViewer::drawARTextureWithOcclusion(GLuint *texVBO, int realRGBIndex, int realDepthIndex, int virtualRGBIndex, int virtualDepthIndex, 
-		int windowWidth, int windowHeight)
+		int windowWidth, int windowHeight, bool ARPolygonal)
 {
 	
 	glUseProgram(shaderProg);
@@ -220,6 +191,8 @@ void MyGLImageViewer::drawARTextureWithOcclusion(GLuint *texVBO, int realRGBInde
 	glUniform1i(texLoc, 2);
 	texLoc = glGetUniformLocation(shaderProg, "virtualDepth");
 	glUniform1i(texLoc, 3);
+	texLoc = glGetUniformLocation(shaderProg, "ARPolygonal");
+	glUniform1i(texLoc, (int)ARPolygonal);
 	
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, texVBO[realRGBIndex]);

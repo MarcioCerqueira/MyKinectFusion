@@ -9,7 +9,7 @@ void MyGLCloudViewer::configureAmbient(int threshold, float *pointCloud)
 {
 
 	glDisable(GL_LIGHTING);
-	drawAxis();
+	//drawAxis();
 	glEnable(GL_LIGHTING);
 	
 	gluPerspective(41, 640.f/480.f, 0.01, threshold * 2);
@@ -300,7 +300,7 @@ void MyGLCloudViewer::setEyePosition(int xEye, int yEye, int zEye)
 	eyePos[2] = zEye;
 }
 
-void MyGLCloudViewer::setOBJScale(float scale)
+void MyGLCloudViewer::setOBJScale(float* scale)
 {
 	glmScale(ARModel, scale);
 }
