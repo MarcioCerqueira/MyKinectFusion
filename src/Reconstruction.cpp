@@ -107,8 +107,8 @@ void Reconstruction::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boo
 	rgbDevice.upload(rgbMap.data, rgbMap.step, rgbMap.rows, rgbMap.cols);
 	depthDevice.upload(depthMap.data, depthMap.step, depthMap.rows, depthMap.cols);
 	
-	ScopeTimeT time ("total-frame");
-	{
+	//ScopeTimeT time ("total-frame");
+	//{
 		image_->setDepthDevice(depthDevice);
 		image_->setRgbDevice(rgbDevice);
 		image_->applyBilateralFilter();
@@ -151,7 +151,7 @@ void Reconstruction::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boo
 
 		}
 
-	}
+	//}
 		
 	if(hasIncrement_) {
 

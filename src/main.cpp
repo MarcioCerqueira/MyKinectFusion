@@ -126,6 +126,27 @@ GLint  linked;
 int w1 = 1, w2 = 0, w3 = 120; 
 int workAround = 0;
 
+//  The number of frames
+int frameCount = 0;
+float fps = 0;
+int currentTime = 0, previousTime = 0;
+
+void calculateFPS() {
+
+	frameCount++;
+	currentTime = glutGet(GLUT_ELAPSED_TIME);
+
+    int timeInterval = currentTime - previousTime;
+
+    if(timeInterval > 1000) {
+        fps = frameCount / (timeInterval / 1000.0f);
+        previousTime = currentTime;
+        frameCount = 0;
+		std::cout << "FPS: " << fps << std::endl;
+    }
+
+}
+
 void printHelp() {
 
 	std::cout << "Help " << std::endl;
@@ -204,6 +225,8 @@ void positionVirtualObject(int x, int y)
 	virtualCentroid[2] += translationVector[2];
 
 	y = windowHeight/2 - (y - windowHeight/2);
+	y = windowHeight/2 - y;
+
 	int pixel = y * windowWidth/2 + x;
 	
 	float cx = reconstruction->getIntrinsics().cx;
@@ -217,7 +240,7 @@ void positionVirtualObject(int x, int y)
 		float yp = (float)(y - cy) * reconstruction->getCurrentDepthMap()[pixel]/fy;
 		float zp = reconstruction->getCurrentDepthMap()[pixel];
 					
-		yp *= -1;
+		//yp *= -1;
 				
 		translationVector[0] += xp - virtualCentroid[0];
 		translationVector[1] += yp - virtualCentroid[1];
@@ -549,6 +572,7 @@ void idle()
 		if(workAround != 2)
 			workAround = 1;
 	}
+	calculateFPS();
 
 }
 

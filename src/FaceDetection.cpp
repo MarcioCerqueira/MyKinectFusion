@@ -6,8 +6,6 @@ FaceDetection::FaceDetection(char *cascadeFileName)
 	std::ifstream in(cascadeFileName);
 	std::string info;
 
-	cascade = 0;
-
 	if(in.is_open())
 	{
 
@@ -19,6 +17,7 @@ FaceDetection::FaceDetection(char *cascadeFileName)
 	}
 	in.close();
 
+	isCascadeLoaded = false;
 	rgbImage = cvCreateImage(cvSize(640, 480), IPL_DEPTH_8U, 3);
 	depthData = (unsigned short*)malloc(640 * 480 * sizeof(unsigned short));
 
@@ -26,7 +25,6 @@ FaceDetection::FaceDetection(char *cascadeFileName)
 
 FaceDetection::~FaceDetection()
 {
-	cvReleaseHaarClassifierCascade(&cascade);
 	cvReleaseImage(&rgbImage);
 	delete [] depthData;
 }
@@ -60,28 +58,30 @@ void FaceDetection::segmentFace(IplImage *img, unsigned short *depthData)
 
 }
 
-bool FaceDetection::detectFace(IplImage* img, unsigned short *depthData, CvMemStorage* storage, CvHaarClassifierCascade* cascade)
+bool FaceDetection::detectFace(IplImage* img, unsigned short *depthData)
 {
+
 	
-	// There can be more than one face in an image. So create a growable sequence of faces.
-    // Detect the objects and store them in the sequence
-    CvSeq* faces = cvHaarDetectObjects( img, cascade, storage, 1.1, 2, CV_HAAR_DO_CANNY_PRUNING, cvSize(40, 40) );
-	
+	IplImage *grayImg = cvCreateImage(cvSize(img->width, img->height), IPL_DEPTH_8U, 1);
+	cvCvtColor(img, grayImg, CV_BGR2GRAY);
+	cvEqualizeHist(grayImg, grayImg);
+
+	cv::gpu::GpuMat GPUImage(cv::Mat(grayImg, true)), GPUFaces;
+	cv::Mat objHost;
+	int detected = GPUCascade.detectMultiScale(GPUImage, GPUFaces, 1.2, 2, cv::Size(40, 40));
+	GPUFaces.colRange(0, detected).download(objHost);
+	cv::Rect* cfaces = objHost.ptr<cv::Rect>();
+
 	int scale = 1;
 	int i;
+	cvReleaseImage(&grayImg);
     // Loop the number of faces found.
-	for(i = 0; i < faces->total; i++)
+	for(i = 0; i < detected; i++)
 	{
-		//i = 0;
-		// Create a new rectangle for drawing the face
-        CvRect* r = (CvRect*)cvGetSeqElem( faces, i );
-			
-        // Find the dimensions of the face, and scale it if necessary
-        pt1.x = r->x*scale - 10;
-        pt2.x = (r->x+r->width)*scale + 10;
-        pt1.y = r->y*scale - 10;
-        pt2.y = (r->y+r->height)*scale + 10;
-
+		pt1.x = cfaces[i].tl().x * scale - 10;
+		pt2.x = (cfaces[i].tl().x + cfaces[i].size().width) * scale + 10;
+		pt1.y = cfaces[i].tl().y * scale - 10;
+		pt2.y = (cfaces[i].tl().y + cfaces[i].size().height) * scale + 10;
  		return true;
 		
 	}
@@ -91,16 +91,16 @@ bool FaceDetection::detectFace(IplImage* img, unsigned short *depthData, CvMemSt
 bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage)
 {
 
-	if(!cascade)
-	{
-		cascade = (CvHaarClassifierCascade*)cvLoad( cascade_name, 0, 0, 0 );
+	if(!isCascadeLoaded) {
+		GPUCascade.load(cascade_name);
+		isCascadeLoaded = true;
 	}
 
 	// Check whether the cascade has loaded successfully. Else report and error and quit
-    if( !cascade )
+	if(!isCascadeLoaded)
     {
-        fprintf( stderr, "ERROR: Could not load classifier cascade\n" );
-        return false;
+		fprintf( stderr, "ERROR: Could not load classifier cascade\n" );
+		return false;
     }
 
 	static CvMemStorage* storage = 0;
@@ -113,9 +113,9 @@ bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boos
 	depthImage->fillDepthImageRaw(this->rgbImage->width, this->rgbImage->height, depthData);
 
 	// Find whether the cascade is loaded, to find the faces. If yes, then:
-    if( cascade )
+	if(isCascadeLoaded)
     {
-		if(detectFace(this->rgbImage, depthData, storage, cascade))
+		if(detectFace(this->rgbImage, depthData))
 		{
 			segmentFace(this->rgbImage, depthData);
 
