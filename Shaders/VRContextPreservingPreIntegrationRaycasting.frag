@@ -1,0 +1,199 @@
+uniform sampler3D volume;
+uniform sampler3D minMaxOctree;
+uniform sampler2D transferFunction;
+uniform sampler2D noise;
+uniform sampler2D frontFrameBuffer;
+uniform sampler2D backFrameBuffer;
+uniform float stepSize;
+uniform float earlyRayTerminationThreshold;
+uniform float kt;
+uniform float ks;
+uniform vec3 camera;
+uniform vec3 translation;
+varying vec3 v;
+uniform int forwardDifference;
+uniform int stochasticJithering;
+uniform int windowWidth;
+uniform int windowHeight;
+
+//Blinn-Phong Illumination
+vec3 BlinnPhongShading(vec3 L, vec3 N, vec3 V) 
+{
+
+	vec3 H = normalize(L + V);
+	
+	vec4 ambient = gl_FrontLightProduct[0].ambient;
+	
+	float diffuseLight = max(dot(L, N), 0);
+	vec4 diffuse = gl_FrontLightProduct[0].diffuse * diffuseLight;
+
+	float specularLight = pow(max(dot(H, N), 0), gl_FrontMaterial.shininess);
+	if(diffuseLight <= 0) specularLight = 0;
+	vec4 specular = gl_FrontLightProduct[0].specular * specularLight;
+
+	return gl_FrontLightModelProduct.sceneColor + ambient + diffuse + specular;
+}
+
+float BlinnPhongShadingIntensity(vec3 L, vec3 N, vec3 V) 
+{
+
+	vec3 H = normalize(L + V);
+	
+	float ambient = gl_FrontLightProduct[0].ambient.r;
+
+	float diffuseLight = max(dot(L, N), 0);
+	float diffuse = gl_FrontLightProduct[0].diffuse.r * diffuseLight;
+
+	float specularLight = pow(max(dot(H, N), 0), gl_FrontMaterial.shininess);
+	if(diffuseLight <= 0) specularLight = 0;
+	float specular = gl_FrontLightProduct[0].specular.r * specularLight;
+	
+	return diffuse + specular + ambient;
+}
+
+vec3 PhongShading(vec3 L, vec3 N, vec3 V) 
+{
+	
+   
+   vec3 E = normalize(-V); // we are in Eye Coordinates, so EyePos is (0,0,0)  
+   vec3 R = normalize(-reflect(L,N));  
+ 
+   //calculate Ambient Term:  
+   vec4 Iamb = gl_FrontLightProduct[0].ambient;    
+
+   //calculate Diffuse Term:  
+   vec4 Idiff = gl_FrontLightProduct[0].diffuse * max(dot(N,L), 0.0);    
+   
+   // calculate Specular Term:
+   vec4 Ispec = gl_FrontLightProduct[0].specular 
+                * pow(max(dot(R,E),0.0),0.3*gl_FrontMaterial.shininess);
+
+   // write Total Color:  
+   return gl_FrontLightModelProduct.sceneColor + Iamb + Idiff + Ispec; 
+   
+}
+
+vec4 computeIllumination(vec4 scalar, vec3 position, float prevOpacity) 
+{
+
+	if(scalar.a > 0.075) {
+		float delta = 0.01;
+		vec3 sample1, sample2;
+		vec3 alpha1, alpha2;
+		
+		sample2.x = texture3D(volume, vec3(position + vec3(delta, 0, 0))).x;
+		sample2.y = texture3D(volume, vec3(position + vec3(0, delta, 0))).x;
+		sample2.z = texture3D(volume, vec3(position + vec3(0, 0, delta))).x;
+		alpha2.x = texture2D(transferFunction, vec2(sample2.x, sample2.x)).a;
+		alpha2.y = texture2D(transferFunction, vec2(sample2.y, sample2.y)).a;
+		alpha2.z = texture2D(transferFunction, vec2(sample2.z, sample2.z)).a;
+		
+		if(forwardDifference == 0) {
+			sample1.x = texture3D(volume, vec3(position - vec3(delta, 0, 0))).x;
+			sample1.y = texture3D(volume, vec3(position - vec3(0, delta, 0))).x;
+			sample1.z = texture3D(volume, vec3(position - vec3(0, 0, delta))).x;
+			alpha1.x = texture2D(transferFunction, vec2(sample1.x, sample1.x)).a;
+			alpha1.y = texture2D(transferFunction, vec2(sample1.y, sample1.y)).a;
+			alpha1.z = texture2D(transferFunction, vec2(sample1.z, sample1.z)).a;
+		}
+		//central difference and normalization
+		//for(int i = 0; i < 1; i++) {
+			vec3 N;
+			if(forwardDifference == 1)
+				N = normalize(scalar - alpha2);
+			else
+				N = normalize(alpha2 - alpha1);
+			vec3 L = normalize(gl_LightSource[0].position.xyz - v); 
+			vec3 V = normalize(-v);
+			scalar.rgb += BlinnPhongShading(L, N, V).rgb;
+			//float sp = BlinnPhongShadingIntensity(L, N, V);
+			float distEye = 1 - length(position + v);
+			float y = distEye * (1 - prevOpacity);
+			float a = kt;
+			float b = ks;
+			float x = length(N);
+			scalar.a *= (x * (b + a * y - a * b * y))/(a * y + b * (a * x * y));
+		//}
+	}
+
+	return scalar;
+}
+
+void main (void)  
+{
+
+	vec4 value;
+	vec2 scalar = vec2(0, 0);
+	vec4 src = vec4(0, 0, 0, 0);
+	//Initialize accumulated color and opacity
+	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
+	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
+	if(rayStart == rayEnd)
+		discard;
+	//Initialize accumulated color and opacity
+	vec4 dst = vec4(0, 0, 0, 0);
+	//Determine volume entry position
+	vec3 position = vec3(rayStart);
+	vec3 direction = vec3(rayEnd) - vec3(rayStart);
+	float len = length(direction); // the length from front to back is calculated and used to terminate the ray
+    direction = normalize(direction);
+	if(stochasticJithering == 1)
+		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256).x/64;
+	float dirLength = normalize(direction);
+	//Loop for ray traversal
+	float maxStepSize = 0.04f;
+	//float maxStepSize = 4 * stepSize;
+	float accLength = 0;
+	vec4 maxOpacity;
+	float prev = 0;
+	for(int i = 0; i < 200; i++) //Some large number
+	{
+		
+		maxOpacity = texture3D(minMaxOctree, position);
+		if(maxOpacity.g > 0) {
+
+			//Data access to scalar value in 3D volume texture
+			value = texture3D(volume, position);
+			//Rechecking the "solidity" of the voxel by jumping around at half-step intervals
+
+			vec3 s = -stepSize * 0.5;
+			position = position + direction * s;
+			value = texture3D(volume, position);
+			if(value.a > 0.1) s *= 0.5;
+			else	s *= -0.5;
+			position = position + direction * s;
+			value = texture3D(volume, position);
+
+			scalar.y = value.a;
+			src = texture2D(transferFunction, scalar.xy);
+			src = computeIllumination(src, position, scalar.x);
+			//Front-to-back compositing
+			if(src.a > 0.1)
+				dst = (1 - dst.a) * src + dst;
+		
+			//Advance ray position along ray direction
+			position = position + direction * stepSize;
+			accLength += dirLength * stepSize;
+			//Save previous scalar value
+			scalar.x = src.a;
+
+		} else {
+		
+			position = position + direction * maxStepSize;
+			accLength += dirLength * maxStepSize;
+		
+		}
+		
+		//Additional termination condition for early ray termination
+		if(dst.a > earlyRayTerminationThreshold)
+			break;
+		
+		//Ray termination: Test if outside volume...
+		if(accLength > len)
+			break;
+		
+	}
+
+	gl_FragColor = dst;
+
+}

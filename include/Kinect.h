@@ -11,6 +11,8 @@ public:
 	bool grabFrame();
 	boost::shared_ptr<openni_wrapper::Image>& getRGBImage() { return rgbImage; }
 	boost::shared_ptr<openni_wrapper::DepthImage>& getDepthImage() { return depthImage; }
+	int getImageWidth() { return rgbImage->getWidth(); }
+	int getImageHeight() { return rgbImage->getHeight(); }
 private:
 	void imageCallBack (const boost::shared_ptr<openni_wrapper::Image>& rgbImage, const boost::shared_ptr<openni_wrapper::DepthImage>& depthImage, float constant);
 	

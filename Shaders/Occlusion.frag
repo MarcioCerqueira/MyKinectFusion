@@ -20,7 +20,7 @@ void main (void)
 	else if(virtualRGBColor.r == 0 && virtualRGBColor.g == 0 && virtualRGBColor.b == 0 && ARPolygonal == 0) //specific ARVolumetric
 		gl_FragColor = realRGBColor;
 	else if((virtualDepthColor.r + 0.025) > realDepthColor.r)
-		gl_FragColor = virtualRGBColor * 0.5 + realRGBColor * 0.5;
+		gl_FragColor = virtualRGBColor * 0.6 + realRGBColor * 0.4;
 	else
 		gl_FragColor = realRGBColor;
 	

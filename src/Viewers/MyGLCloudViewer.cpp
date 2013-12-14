@@ -3,9 +3,12 @@
 MyGLCloudViewer::MyGLCloudViewer()
 {
 	ARModel = NULL;
+	ambientIntensity = 0;
+	diffuseIntensity = 0.9;
+	specularIntensity = 0.85;
 }
 
-void MyGLCloudViewer::configureAmbient(int threshold, float *pointCloud)
+void MyGLCloudViewer::configureAmbient(int threshold)
 {
 
 	glDisable(GL_LIGHTING);
@@ -46,14 +49,17 @@ void MyGLCloudViewer::configureLight()
 	GLfloat mat_shininess[] = { 64.f };
 	GLfloat global_ambient[] = { 0.05f, 0.05f, 0.05f, 1.f };
 	
-	GLfloat light0_ambient[] = { 0.0f, 0.0f, 0.0f, 1.f };
-	GLfloat light0_diffuse[] = { 0.9f, 0.9f, 0.9f, 1.f };
-	GLfloat light0_specular[] = { 0.85f, 0.85f, 0.85f, 1.f };
+	GLfloat light0_ambient[] = { ambientIntensity, ambientIntensity, ambientIntensity, 1.f };
+	GLfloat light0_diffuse[] = { diffuseIntensity, diffuseIntensity, diffuseIntensity, 1.f };
+	GLfloat light0_specular[] = { specularIntensity, specularIntensity, specularIntensity, 1.f };
 
 	glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_specular);
 	glMaterialfv(GL_FRONT_AND_BACK, GL_SHININESS, mat_shininess);
-	
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, light0_diffuse);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, light0_ambient);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, light0_specular);
+
 	glLightfv(GL_LIGHT0, GL_AMBIENT, light0_ambient);
 	glLightfv(GL_LIGHT0, GL_DIFFUSE, light0_diffuse);
 	glLightfv(GL_LIGHT0, GL_SPECULAR, light0_specular);
@@ -98,8 +104,35 @@ void MyGLCloudViewer::configureOBJAmbient(int threshold)
 	
 }
 
+void MyGLCloudViewer::configureQuadAmbient(int threshold)
+{
+
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+
+    gluPerspective(41.0, 640.f/480.f, 0.01, threshold * 2);
+    gluLookAt(eyePos[0], eyePos[1], eyePos[2], 0, 0, 0, 0, -1, 1);
+    
+	glMatrixMode(GL_TEXTURE);
+	glLoadIdentity();
+
+	glDisable(GL_LIGHTING);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+
+	glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+}
+
 void MyGLCloudViewer::configureARAmbientWithBlending(int threshold)
 {
+
+	glEnable(GL_DEPTH_TEST);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+
 	gluPerspective(41.0, 640.f/480.f, 0.01, threshold * 2);
 	gluLookAt(eyePos[0], eyePos[1], eyePos[2], 0, 0, 0, 0, -1, 1);
 
@@ -107,10 +140,13 @@ void MyGLCloudViewer::configureARAmbientWithBlending(int threshold)
 	glLoadIdentity();
 
 	glEnable( GL_ALPHA_TEST );
-    glAlphaFunc( GL_GREATER, 0.05f );
+    glAlphaFunc( GL_GREATER, 0.1f );
 
     glEnable(GL_BLEND);
-	glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	glBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_ALPHA );
+
+	glEnable(GL_LIGHTING);
+
 }
 
 void MyGLCloudViewer::computeARModelCentroid(float *centroid) 
@@ -311,12 +347,12 @@ void MyGLCloudViewer::setProgram(GLuint shaderProg)
 }
 
 void MyGLCloudViewer::updateModelViewMatrix(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, 
-		Eigen::Vector3f initialTranslation, bool useTextureRotation, float volumeWidth, float volumeHeight, 
-		float volumeDepth) 
+		Eigen::Vector3f initialTranslation, bool useTextureRotation, float volumeWidth, float volumeHeight, float volumeDepth, 
+		float scaleWidth, float scaleHeight, float scaleDepth, int rotationX, int rotationY, int rotationZ) 
 {
 
 	glPushMatrix();
-	
+		
 	glRotatef(180, 0, 1, 0);
 
 	Matrix3frm g2 = gRot.inverse();
@@ -344,21 +380,10 @@ void MyGLCloudViewer::updateModelViewMatrix(float *translationVector, float *rot
 
 	} else {
 
+		glRotatef(rotationAngles[rotationX], 1, 0, 0);
+		glRotatef(rotationAngles[rotationY], 0, 1, 0);
+		glRotatef(rotationAngles[rotationZ], 0, 0, 1);
 
-		//Remember that rotation is not proper after 90 degree
-		//http://www.codeproject.com/Articles/352270/Getting-started-with-Volume-Rendering
-
-		glMatrixMode(GL_TEXTURE);
-		glActiveTexture(GL_TEXTURE7);
-		glLoadIdentity();
-		glTranslatef(0.5f, 0.5f, 0.5f);
-		glScalef(1, -1.0f * volumeWidth/volumeHeight, volumeWidth/volumeDepth);
-		glRotatef(rotationAngles[0], 1, 0, 0);
-		glRotatef(rotationAngles[1], 0, 1, 0);
-		glRotatef(rotationAngles[2], 0, 0, 1);
-		
-		glTranslatef(-0.5f, -0.5f, -0.5f);
-		glMatrixMode(GL_MODELVIEW);
 	}
 
 	//My solution to the orientation problem	
