@@ -24,9 +24,12 @@ public:
 	void drawAxis();
 	void drawMesh(GLuint* VBOs, Eigen::Vector3f gTrans, Matrix3frm gRot, Eigen::Vector3f initialTranslation, float *rotationAngles, bool useShader, bool globalCoordinates);
 	void drawOBJ(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, Eigen::Vector3f initialTranslation);
+	void drawQuad(GLuint *VBO);
+	
 	void loadARModel(char *fileName);
 	void loadIndices(int *indices, float *pointCloud);
 	void loadVBOs(GLuint *meshVBO, int *indices, float *pointCloud, float *normalVector);
+	void loadVBOQuad(GLuint *VBO, float x, float y, float z);
 	void setEyePosition(int xEye, int yEye, int zEye);
 	float* getEyePosition() { return eyePos; }
 	void setOBJScale(float* scale);

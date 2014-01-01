@@ -1,0 +1,10 @@
+C:\MVSProjects\pvm2pgm\x64\Debug\VisMale\
+1
+256
+pgm
+1.57774
+0.995861
+1.00797
+0
+2
+1	

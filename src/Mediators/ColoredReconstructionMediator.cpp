@@ -57,9 +57,9 @@ void ColoredReconstructionMediator::savePointCloud(TsdfVolume *tsdfVolume) {
 
 }
 
-void ColoredReconstructionMediator::updateColorVolume(Reconstruction *reconstruction) {
+void ColoredReconstructionMediator::updateColorVolume(KinfuTracker::View rgbDevice, Reconstruction *reconstruction) {
 	
 	colorVolume->updateColorVolume(reconstruction->getIntrinsics(), reconstruction->getTrancationDistance(), reconstruction->getRotationMatrices(), 
-			reconstruction->getTranslationVectors(), reconstruction->getGlobalVertexMaps(), reconstruction->getRGBDevice());
+			reconstruction->getTranslationVectors(), reconstruction->getGlobalVertexMaps(), rgbDevice);
 
 }

@@ -24,7 +24,8 @@ class MyPointCloud
 {
 public:
 	MyPointCloud(int cols, int rows);
-	
+	~MyPointCloud();
+
 	std::vector<device::MapArr>& getVertexMaps() { return vmaps_; };
 	std::vector<device::MapArr>& getNormalMaps() { return nmaps_; };
 	void getHostErrorInRGB(DeviceArray2D<pcl::PointXYZI>& errorInRGB);
@@ -38,15 +39,20 @@ public:
 	bool alignPointClouds(std::vector<Matrix3frm>& Rcam, std::vector<Vector3f>& tcam, MyPointCloud *globalPreviousPointCloud, device::Intr& intrinsics, int globalTime);
 	float computeFinalError();
 	
-
 	void getLastFrameCloud(DeviceArray2D<pcl::PointXYZ>& cloud);
 	void getLastFrameNormals(DeviceArray2D<pcl::PointXYZ>& normals);
 	Eigen::Vector3f& getCentroid();
 	void getDepthMap(unsigned short *depthMap);
+	void getHostPointCloud(float *pointCloud);
+	void getHostNormalVector(float *normalVector, int inverse);
+	void getHostCurvature(float *curvature);
+	void getHostDepthMapTransformingOrganizedGlobalToCurrentPointCloud(unsigned short *depthMap, device::DepthMap depthDevice, 
+		Matrix3frm rotInverse, Eigen::Vector3f& transInverse);
 
 private:
 	std::vector<device::MapArr> vmaps_;
     std::vector<device::MapArr> nmaps_;
+	float* deviceCurvatureMap;
 	std::vector<float> hostError_;
 	int rows_, cols_;
 	int icpIterations_[LEVELS];
@@ -54,5 +60,10 @@ private:
 	DeviceArray2D<float> gbuf_;
     DeviceArray<float> sumbuf_;
 	DeviceArray2D<float> error_;
+	DeviceArray2D<pcl::PointXYZ> cloudDevice_;
+	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> cloudHost_;
+	DeviceArray2D<pcl::PointXYZ> normalsDevice_;
+	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> normalsHost_;
+	
 };
 #endif

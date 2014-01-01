@@ -24,7 +24,7 @@ void Image::setDepthIntrinsics (float fx, float fy, float cx, float cy)  {
 
 }
 
-void Image::setTrancationDistance(Eigen::Vector3f volumeSize) {
+void Image::setTrancationDistance(Eigen::Vector3i volumeSize) {
 
 	float cx = volumeSize (0) / device::VOLUME_X;
 	float cy = volumeSize (1) / device::VOLUME_Y;
@@ -70,7 +70,35 @@ void Image::convertToPointCloud(MyPointCloud *currentPointCloud) {
 
 }
 
+void Image::load(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage) {
 
+	depthMap_.cols = depthImage->getWidth();
+	depthMap_.rows = depthImage->getHeight();
+	depthMap_.step = depthMap_.cols * depthMap_.elemSize();
+	
+	sourceDepthData.resize(depthMap_.cols * depthMap_.rows);
+	depthImage->fillDepthImageRaw(depthMap_.cols, depthMap_.rows, &sourceDepthData[0]);
+	depthMap_.data = &sourceDepthData[0];
+
+	rgbMap_.cols = rgbImage->getWidth();
+	rgbMap_.rows = rgbImage->getHeight();
+	rgbMap_.step = rgbMap_.cols * rgbMap_.elemSize();
+
+	sourceRgbData.resize(rgbMap_.cols * rgbMap_.rows);
+	rgbImage->fillRGB(rgbMap_.cols, rgbMap_.rows, (unsigned char*)&sourceRgbData[0]);
+	rgbMap_.data = &sourceRgbData[0];
+	
+	updateDeviceData();
+
+}
+
+void Image::updateDeviceData() {
+	
+	rgbDevice_.upload(rgbMap_.data, rgbMap_.step, rgbMap_.rows, rgbMap_.cols);
+	depthDevice_.upload(depthMap_.data, depthMap_.step, depthMap_.rows, depthMap_.cols);
+	
+}
+	
 void Image::allocateBuffers(int cols, int rows) {
 
 	depths_curr_.resize (LEVELS);
@@ -89,8 +117,9 @@ void Image::allocateBuffers(int cols, int rows) {
 
 }
 
-void Image::getRaycastImage(KinfuTracker::View &viewDevice, Eigen::Vector3f volumeSize, MyPointCloud *globalPreviousPointCloud) {
-
+unsigned char* Image::getRaycastImage(Eigen::Vector3f volumeSize, MyPointCloud *globalPreviousPointCloud) {
+	
+	int cols;
 	const Eigen::Vector3f& lightSourcePose = volumeSize * (-3.f);
 
 	device::LightSource light;
@@ -99,5 +128,8 @@ void Image::getRaycastImage(KinfuTracker::View &viewDevice, Eigen::Vector3f volu
 
 	viewDevice.create(rows_, cols_);
 	generateImage (globalPreviousPointCloud->getVertexMaps()[0], globalPreviousPointCloud->getNormalMaps()[0], light, viewDevice);
+	viewDevice.download (viewHost, cols);
+
+	return (unsigned char*)viewHost.data();
 
 }

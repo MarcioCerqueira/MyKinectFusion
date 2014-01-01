@@ -24,14 +24,14 @@ vec3 BlinnPhongShading(vec3 L, vec3 N, vec3 V)
 	
 	vec4 ambient = gl_FrontLightProduct[0].ambient;
 	
-	float diffuseLight = max(dot(L, N), 0);
+	float diffuseLight = max(dot(L, N), 0.0);
 	vec4 diffuse = gl_FrontLightProduct[0].diffuse * diffuseLight;
 
-	float specularLight = pow(max(dot(H, N), 0), gl_FrontMaterial.shininess);
-	if(diffuseLight <= 0) specularLight = 0;
+	float specularLight = pow(max(dot(H, N), 0.0), gl_FrontMaterial.shininess);
+	if(diffuseLight <= 0.0) specularLight = 0.0;
 	vec4 specular = gl_FrontLightProduct[0].specular * specularLight;
 
-	return gl_FrontLightModelProduct.sceneColor + ambient + diffuse + specular;
+	return vec3(gl_FrontLightModelProduct.sceneColor + ambient + diffuse + specular);
 }
 
 float BlinnPhongShadingIntensity(vec3 L, vec3 N, vec3 V) 
@@ -41,11 +41,11 @@ float BlinnPhongShadingIntensity(vec3 L, vec3 N, vec3 V)
 	
 	float ambient = gl_FrontLightProduct[0].ambient.r;
 
-	float diffuseLight = max(dot(L, N), 0);
+	float diffuseLight = max(dot(L, N), 0.0);
 	float diffuse = gl_FrontLightProduct[0].diffuse.r * diffuseLight;
 
-	float specularLight = pow(max(dot(H, N), 0), gl_FrontMaterial.shininess);
-	if(diffuseLight <= 0) specularLight = 0;
+	float specularLight = pow(max(dot(H, N), 0.0), gl_FrontMaterial.shininess);
+	if(diffuseLight <= 0.0) specularLight = 0.0;
 	float specular = gl_FrontLightProduct[0].specular.r * specularLight;
 	
 	return diffuse + specular + ambient;
@@ -69,7 +69,7 @@ vec3 PhongShading(vec3 L, vec3 N, vec3 V)
                 * pow(max(dot(R,E),0.0),0.3*gl_FrontMaterial.shininess);
 
    // write Total Color:  
-   return gl_FrontLightModelProduct.sceneColor + Iamb + Idiff + Ispec; 
+   return vec3(gl_FrontLightModelProduct.sceneColor + Iamb + Idiff + Ispec); 
    
 }
 
@@ -79,7 +79,8 @@ vec4 computeIllumination(vec4 scalar, vec3 position, float prevOpacity)
 	if(scalar.a > 0.075) {
 		float delta = 0.01;
 		vec3 sample1, sample2;
-		vec3 alpha1, alpha2;
+		vec3 alpha1 = vec3(0, 0, 0);
+		vec3 alpha2 = vec3(0, 0, 0);
 		
 		sample2.x = texture3D(volume, vec3(position + vec3(delta, 0, 0))).x;
 		sample2.y = texture3D(volume, vec3(position + vec3(0, delta, 0))).x;
@@ -100,15 +101,15 @@ vec4 computeIllumination(vec4 scalar, vec3 position, float prevOpacity)
 		//for(int i = 0; i < 1; i++) {
 			vec3 N;
 			if(forwardDifference == 1)
-				N = normalize(scalar - alpha2);
+				N = normalize(vec3(scalar) - alpha2);
 			else
 				N = normalize(alpha2 - alpha1);
 			vec3 L = normalize(gl_LightSource[0].position.xyz - v); 
 			vec3 V = normalize(-v);
 			scalar.rgb += BlinnPhongShading(L, N, V).rgb;
 			//float sp = BlinnPhongShadingIntensity(L, N, V);
-			float distEye = 1 - length(position + v);
-			float y = distEye * (1 - prevOpacity);
+			float distEye = 1.0 - length(position + v);
+			float y = distEye * (1.0 - prevOpacity);
 			float a = kt;
 			float b = ks;
 			float x = length(N);
@@ -126,8 +127,8 @@ void main (void)
 	vec2 scalar = vec2(0, 0);
 	vec4 src = vec4(0, 0, 0, 0);
 	//Initialize accumulated color and opacity
-	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
-	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
+	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
+	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
 	if(rayStart == rayEnd)
 		discard;
 	//Initialize accumulated color and opacity
@@ -138,25 +139,25 @@ void main (void)
 	float len = length(direction); // the length from front to back is calculated and used to terminate the ray
     direction = normalize(direction);
 	if(stochasticJithering == 1)
-		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256).x/64;
-	float dirLength = normalize(direction);
+		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256.0).x/64.0;
+	float dirLength = length(direction);
 	//Loop for ray traversal
-	float maxStepSize = 0.04f;
+	float maxStepSize = 0.04;
 	//float maxStepSize = 4 * stepSize;
-	float accLength = 0;
+	float accLength = 0.0;
 	vec4 maxOpacity;
-	float prev = 0;
+	float prev = 0.0;
 	for(int i = 0; i < 200; i++) //Some large number
 	{
 		
 		maxOpacity = texture3D(minMaxOctree, position);
-		if(maxOpacity.g > 0) {
+		if(maxOpacity.g > 0.0) {
 
 			//Data access to scalar value in 3D volume texture
 			value = texture3D(volume, position);
 			//Rechecking the "solidity" of the voxel by jumping around at half-step intervals
 
-			vec3 s = -stepSize * 0.5;
+			vec3 s = vec3(-stepSize * 0.5, -stepSize * 0.5, -stepSize * 0.5);
 			position = position + direction * s;
 			value = texture3D(volume, position);
 			if(value.a > 0.1) s *= 0.5;
@@ -169,7 +170,7 @@ void main (void)
 			src = computeIllumination(src, position, scalar.x);
 			//Front-to-back compositing
 			if(src.a > 0.1)
-				dst = (1 - dst.a) * src + dst;
+				dst = (1.0 - dst.a) * src + dst;
 		
 			//Advance ray position along ray direction
 			position = position + direction * stepSize;

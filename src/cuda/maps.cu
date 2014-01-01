@@ -109,6 +109,63 @@ namespace pcl
       else
         nmap.ptr (v)[u] = numeric_limits<float>::quiet_NaN ();
     }
+	
+	__global__ void
+    computeCurvatureMapKernel (int rows, int cols, const PtrStep<float> nmap, float* curvatureMap)
+    {
+      int u = threadIdx.x + blockIdx.x * blockDim.x;
+      int v = threadIdx.y + blockIdx.y * blockDim.y;
+
+      if (u >= cols || v >= rows)
+        return;
+
+      if (u == 0 || v == 0 || u == cols - 1 || v == rows - 1)
+      {
+        curvatureMap[v * cols + u] = 0;
+        return;
+      }
+
+      float3 v00, v01, v10, v02, v20;
+      v00.x = nmap.ptr (v  )[u];
+      v01.x = nmap.ptr (v  )[u + 1];
+      v10.x = nmap.ptr (v + 1)[u];
+	  v02.x = nmap.ptr (v  )[u - 1];
+	  v20.x = nmap.ptr (v - 1)[u];
+
+      if (!isnan (v00.x) && !isnan (v01.x) && !isnan (v10.x) && !isnan (v02.x) && !isnan(v20.x))
+      {
+        v00.y = nmap.ptr (v + rows)[u];
+        v01.y = nmap.ptr (v + rows)[u + 1];
+        v10.y = nmap.ptr (v + 1 + rows)[u];
+		v02.y = nmap.ptr (v + rows)[u - 1];
+		v20.y = nmap.ptr (v - 1 + rows)[u];
+
+        v00.z = nmap.ptr (v + 2 * rows)[u];
+        v01.z = nmap.ptr (v + 2 * rows)[u + 1];
+        v10.z = nmap.ptr (v + 1 + 2 * rows)[u];
+		v02.z = nmap.ptr (v + 2 * rows)[u - 1];
+		v20.z = nmap.ptr (v - 1 + 2 * rows)[u];
+		
+		/* //ClearView
+        float a = sqrtf(powf(v00.x - v01.x, 2) + powf(v00.y - v01.y, 2) + powf(v00.z - v01.z, 2));
+		float b = sqrtf(powf(v00.x - v10.x, 2) + powf(v00.y - v10.y, 2) + powf(v00.z - v10.z, 2));
+		float c = sqrtf(powf(v00.x - v02.x, 2) + powf(v00.y - v02.y, 2) + powf(v00.z - v02.z, 2));
+		float d = sqrtf(powf(v00.x - v20.x, 2) + powf(v00.y - v20.y, 2) + powf(v00.z - v20.z, 2));
+
+		curvatureMap[v * cols + u] = (a + b + c + d);
+		*/
+
+		float a = sqrtf(powf(v00.x - v01.x, 2) + powf(v00.y - v01.y, 2) + powf(v00.z - v01.z, 2));
+		float b = sqrtf(powf(v00.x - v10.x, 2) + powf(v00.y - v10.y, 2) + powf(v00.z - v10.z, 2));
+		float c = sqrtf(powf(v00.x - v02.x, 2) + powf(v00.y - v02.y, 2) + powf(v00.z - v02.z, 2));
+		float d = sqrtf(powf(v00.x - v20.x, 2) + powf(v00.y - v20.y, 2) + powf(v00.z - v20.z, 2));
+		curvatureMap[v * cols + u] = (a + b + c + d)/(2 * sqrtf(powf(v00.x, 2) + powf(v00.y, 2) + powf(v00.z, 2)));
+		curvatureMap[v * cols + u] = 1 - powf(1 - curvatureMap[v * cols + u], 0.9);
+		
+      } else {
+		curvatureMap[v * cols + u] = 0;
+	  }
+    }
   }
 }
 
@@ -145,6 +202,23 @@ pcl::device::createNMap (const MapArr& vmap, MapArr& nmap)
   grid.y = divUp (rows, block.y);
 
   computeNmapKernel << < grid, block >> > (rows, cols, vmap, nmap);
+  cudaSafeCall (cudaGetLastError ());
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void
+pcl::device::computeCurvatureMap (const MapArr& nmap, float *curvatureMap)
+{
+  
+  int rows = nmap.rows () / 3;
+  int cols = nmap.cols ();
+
+  dim3 block (32, 8);
+  dim3 grid (1, 1, 1);
+  grid.x = divUp (cols, block.x);
+  grid.y = divUp (rows, block.y);
+
+  computeCurvatureMapKernel << < grid, block >> > (rows, cols, nmap, curvatureMap);
   cudaSafeCall (cudaGetLastError ());
 }
 
@@ -281,6 +355,34 @@ namespace pcl
       }
     }
 
+	__global__ void
+    transformInverseOrganizedMapToDepthMapKernel (int rows, int cols, const PtrStep<float> vmap, PtrStepSz<unsigned short> depth, 
+		const Mat33 Rmat, const float3 tvec)
+    {
+      int x = threadIdx.x + blockIdx.x * blockDim.x;
+      int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+      const float qnan = pcl::device::numeric_limits<float>::quiet_NaN ();
+
+      if (x < cols && y < rows)
+      {
+        //vetexes
+        float3 vsrc, vdst = make_float3 (qnan, qnan, qnan);
+        vsrc.x = vmap.ptr (y)[x];
+
+        if (!isnan (vsrc.x))
+        {
+			
+			vsrc.y = vmap.ptr (y + rows)[x];
+			vsrc.z = vmap.ptr (y + 2 * rows)[x];
+
+			if(vsrc.z != 0) depth.ptr (y)[x] = (Rmat * (vsrc - tvec)).z;
+		    else depth.ptr(y)[x] = 0;
+
+		} else depth.ptr(y)[x] = 0;
+
+	   }
+	 }
   }
 }
 
@@ -327,6 +429,25 @@ pcl::device::tranformMaps (const MapArr& vmap_src, const MapArr& nmap_src,
   cudaSafeCall (cudaGetLastError ());
 
   cudaSafeCall (cudaDeviceSynchronize ());
+}
+
+void 
+pcl::device::transformInverseOrganizedMapToDepthMap (const MapArr &vmap, DepthMap &depthMap, const Mat33& Rmat, const float3& tvec)
+{
+
+	int cols = vmap.cols ();
+	int rows = vmap.rows () / 3;
+
+	dim3 block (32, 8);
+	dim3 grid (1, 1, 1);
+	grid.x = divUp (cols, block.x);
+	grid.y = divUp (rows, block.y);
+
+	transformInverseOrganizedMapToDepthMapKernel << < grid, block >> > (rows, cols, vmap, depthMap, Rmat, tvec);
+	cudaSafeCall (cudaGetLastError ());
+	
+	cudaSafeCall (cudaDeviceSynchronize ());
+
 }
 
 namespace pcl

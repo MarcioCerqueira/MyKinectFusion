@@ -21,11 +21,14 @@ MyPointCloud::MyPointCloud(int cols, int rows) {
 
 	}
 
+	cudaMalloc((void**)&deviceCurvatureMap, rows * cols * sizeof(float));
+
 	rows_ = rows;
 	cols_ = cols;
 
-	//10, 5, 4
-	const int iters[] = {10, 5, 4};
+	//Original: 10, 5, 4
+	//Faster: 1, 1, 1
+	const int iters[] = {1, 1, 1};
 	std::copy (iters, iters + LEVELS, icpIterations_);
 
 	distThres_ = 100;
@@ -33,6 +36,12 @@ MyPointCloud::MyPointCloud(int cols, int rows) {
 
 	gbuf_.create (27, 20*60);
 	sumbuf_.create (27);
+
+}
+
+MyPointCloud::~MyPointCloud() {
+	
+	cudaFree(deviceCurvatureMap);
 
 }
 
@@ -246,5 +255,57 @@ void MyPointCloud::getDepthMap(unsigned short *depthMap) {
 		}
 
 	}
+
+}
+
+void MyPointCloud::getHostPointCloud(float *pointCloud) {
+	
+	int temp;
+	
+	getLastFrameCloud(cloudDevice_);
+	cloudDevice_.download (cloudHost_, temp);
+	
+	for(int point = 0; point < (640 * 480); point++)
+	{
+		pointCloud[point * 3 + 0] = cloudHost_[point].x;
+		pointCloud[point * 3 + 1] = cloudHost_[point].y;
+		pointCloud[point * 3 + 2] = cloudHost_[point].z;
+	}
+
+}
+
+void MyPointCloud::getHostNormalVector(float *normalVector, int inverse) {
+
+	int temp;
+	getLastFrameNormals(normalsDevice_);
+	normalsDevice_.download (normalsHost_, temp);
+	
+	for(int point = 0; point < (640 * 480); point++)
+	{
+		normalVector[point * 3 + 0] = inverse * normalsHost_[point].x;
+		normalVector[point * 3 + 1] = inverse * normalsHost_[point].y;
+		if((inverse * normalsHost_[point].z) > 0)
+			normalVector[point * 3 + 2] = normalsHost_[point].z;
+		else
+			normalVector[point * 3 + 2] = inverse * normalsHost_[point].z;
+	}
+
+}
+
+void MyPointCloud::getHostCurvature(float *curvature) {
+	
+	device::computeCurvatureMap(nmaps_[0], deviceCurvatureMap);
+	cudaMemcpy(curvature, deviceCurvatureMap, rows_ * cols_ * sizeof(float), cudaMemcpyDeviceToHost);
+	
+}
+
+void MyPointCloud::getHostDepthMapTransformingOrganizedGlobalToCurrentPointCloud(unsigned short *depthMap, device::DepthMap depthDevice, 
+		Matrix3frm rotInverse, Eigen::Vector3f& transInverse) {
+	
+	device::Mat33&  device_Rcam = device_cast<device::Mat33> (rotInverse);
+    float3& device_tcam = device_cast<float3>(transInverse);
+	
+	device::transformInverseOrganizedMapToDepthMap(vmaps_[0], depthDevice, device_Rcam, device_tcam);
+	depthDevice.download(depthMap, 640 * sizeof(unsigned short));
 
 }

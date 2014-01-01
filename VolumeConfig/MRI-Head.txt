@@ -1,0 +1,7 @@
+C:\MVSProjects\pvm2pgm\x64\Debug\MRI-Head\
+1
+256
+pgm
+1
+1
+1.5

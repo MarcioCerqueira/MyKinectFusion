@@ -10,6 +10,7 @@
 #include "Viewers/MyGLImageViewer.h"
 #include "Viewers/MyGLCloudViewer.h"
 #include "Viewers/shader.h"
+#include "Viewers/AROcclusionParams.h"
 #include "Mediators/MeshGenerationMediator.h"
 #include "Mediators/ColoredReconstructionMediator.h"
 #include "Mediators/HeadPoseEstimationMediator.h"
@@ -19,6 +20,7 @@
 #include "VolumeRendering/TransferFunction.h"
 #include "VolumeRendering/TriCubicInterpolationPreFilter.h"
 #include "Kinect.h"
+#include "Image.h"
 #include "FaceDetection.h"
 
 using namespace std;
@@ -31,6 +33,7 @@ int windowWidth = 1280;
 int windowHeight = 960;
 
 //Our Objects
+Image *imageCollection;
 Kinect *kinect;
 Reconstruction *reconstruction;
 MyGLImageViewer *myGLImageViewer;
@@ -42,24 +45,17 @@ TriCubicInterpolationPreFilter *triCubicInterpolationPreFilter;
 ColoredReconstructionMediator *coloredReconstructionMediator;
 HeadPoseEstimationMediator *headPoseEstimationMediator;
 FaceDetection *faceDetector;
-	
+AROcclusionParams occlusionParams;
+
 //VBOs
-GLuint texVBO[15]; 
+GLuint texVBO[20]; 
 GLuint spt[2];
 GLuint meshVBO[4];
+GLuint quadVBO[4];
 GLuint virtualFrameBuffer;
 GLuint realFrameBuffer;
-/* texVBO
-0 -- Depth
-1 -- Real RGB
-2 -- Raycast
-3 -- ARFromVolume (Grid)
-4 -- Virtual DepthBuffer
-5 -- Virtual FrameBuffer
-6 -- Real DepthBuffer
-7 -- ARFromVolume (Volume Rendering)
-8 -- Real FrameBuffer
-*/
+GLuint frontQuadFrameBuffer;
+GLuint backQuadFrameBuffer;
 
 enum
 {
@@ -75,13 +71,24 @@ enum
 	MIN_MAX_OCTREE_BO = 9,
 	TRANSFER_FUNCTION_BO = 10,
 	NOISE_BO = 11,
-	FRONT_FBO = 12,
-	BACK_FBO = 13
+	FRONT_QUAD_RGB_FBO = 12,
+	FRONT_QUAD_DEPTH_FBO = 13,
+	BACK_QUAD_RGB_FBO = 14,
+	BACK_QUAD_DEPTH_FBO = 15,
+	CURVATURE_MAP_FBO = 16
 };
 
 int indices[640 * 480 * 6];
 float pointCloud[640 * 480 * 3];
 float normalVector[640 * 480 * 3];
+float depthData[640 * 480];
+float curvature[640 * 480];
+unsigned short curv[640 * 480];
+
+float curvatureWeight = 0;
+float distanceFalloffWeight = 0.9;
+float focusPoint[2] = {0, 0};
+float focusRadius = 50;
 
 //AR (General attributes)
 int vel = 15;
@@ -96,6 +103,9 @@ bool stepSizeModificationOn = false;
 bool isoSurfaceThresholdModificationOn = false;
 bool ksOn = false;
 bool ktOn = false;
+bool curvatureWeightOn = false;
+bool distanceFallOffWeightOn = false;
+bool focusRadiusOn = false;
 bool AR = false;
 bool ARConfiguration = false;
 
@@ -124,6 +134,7 @@ bool showCloud = false;
 bool showRaycasting = true;
 bool showDepthMap = true;
 bool showRGBMap = true;
+bool showCurvatureMap = false;
 
 //
 // Global handles for the currently active program object, with its two shader objects
@@ -132,7 +143,7 @@ GLuint ProgramObject = 0;
 GLuint VertexShaderObject = 0;
 GLuint FragmentShaderObject = 0;
 
-GLuint shaderVS, shaderFS, shaderProg[7];   // handles to objects
+GLuint shaderVS, shaderFS, shaderProg[8];   // handles to objects
 GLint  linked;
 
 int w1 = 1, w2 = 0, w3 = 120; 
@@ -173,14 +184,13 @@ void printHelp() {
 	std::cout << "Press 'h' to enable head pose tracking " << std::endl;
 	std::cout << "Press 'p' to stop the head pose tracking " << std::endl;
 	std::cout << "Press 'c' to continue the head pose tracking " << std::endl;
-	std::cout << "Press 's' to save point cloud or mesh (if --mesh is enabled) " << std::endl;
 	std::cout << "Press 'a' to enable AR application " << std::endl;
 
 }
 
 void saveModel()
 {
-
+	
 	int op;
 	std::cout << "Saving Model..." << std::endl;
 	std::cout << "Do you want to save a point cloud (.pcd) or a mesh (.ply)? (0: point cloud; 1: mesh)" << std::endl;
@@ -194,7 +204,9 @@ void saveModel()
 		MeshGenerationMediator mgm;
 		mgm.saveMesh(reconstruction->getTsdfVolume());
 	}
+	
 }
+
 
 void setScale(int index, bool up)
 {
@@ -238,27 +250,25 @@ void positionVirtualObject(int x, int y)
 
 	y = windowHeight/2 - (y - windowHeight/2);
 	y = windowHeight/2 - y;
-
+	
 	int pixel = y * windowWidth/2 + x;
 	
-	float cx = reconstruction->getIntrinsics().cx;
-	float cy = reconstruction->getIntrinsics().cy;
-	float fx = reconstruction->getIntrinsics().fx;
-	float fy = reconstruction->getIntrinsics().fy;
+	float cx = imageCollection->getIntrinsics().cx;
+	float cy = imageCollection->getIntrinsics().cy;
+	float fx = imageCollection->getIntrinsics().fx;
+	float fy = imageCollection->getIntrinsics().fy;
 	//If the chosen point is visible
 	if(pixel >= 0 && pixel < (640 * 480)) {
-		if(reconstruction->getCurrentDepthMap()[pixel] != 0) {
-	
-			float xp = (float)(x - cx) * reconstruction->getCurrentDepthMap()[pixel]/fx;
-			float yp = (float)(y - cy) * reconstruction->getCurrentDepthMap()[pixel]/fy;
-			float zp = reconstruction->getCurrentDepthMap()[pixel];
-					
-			//yp *= -1;
-				
+		if(imageCollection->getDepthMap()[pixel] != 0) {
+			
+			float xp = (float)(x - cx) * imageCollection->getDepthMap()[pixel]/fx;
+			float yp = (float)(y - cy) * imageCollection->getDepthMap()[pixel]/fy;
+			float zp = imageCollection->getDepthMap()[pixel];
+			
 			translationVector[0] += xp - virtualCentroid[0];
 			translationVector[1] += yp - virtualCentroid[1];
 			translationVector[2] += zp - virtualCentroid[2];
-				
+
 		}
 	}
 
@@ -346,6 +356,46 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 
 }
 
+void loadARDepthDataBasedOnDepthMaps() 
+{
+
+	glPixelTransferf(GL_DEPTH_SCALE, 1.0/reconstruction->getThreshold());
+	for(int p = 0; p < 640 * 480; p++)
+		depthData[p] = (float)imageCollection->getDepthMap().data[p];///(float)reconstruction->getThreshold();
+	myGLImageViewer->loadDepthComponentTexture(depthData, texVBO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, windowWidth, windowHeight);
+	//glBindTexture(GL_TEXTURE_2D, texVBO[REAL_DEPTH_FROM_DEPTHBUFFER_BO]);
+	//glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, windowWidth/2, windowHeight/2, GL_DEPTH_COMPONENT, GL_FLOAT, depthData);
+	reconstruction->getGlobalPreviousPointCloud()->getHostPointCloud(pointCloud);
+	
+	Matrix3frm rotInverse = reconstruction->getCurrentRotation().inverse();
+	for(int point = 0; point < (640 * 480); point++) {
+		if(pointCloud[point * 3 + 2] > 0 && pointCloud[point * 3 + 2] == pointCloud[point * 3 + 2]) {
+
+			pointCloud[point * 3 + 0] -= reconstruction->getCurrentTranslation()[0];
+            pointCloud[point * 3 + 1] -= reconstruction->getCurrentTranslation()[1];
+            pointCloud[point * 3 + 2] -= reconstruction->getCurrentTranslation()[2];
+			pointCloud[point * 3 + 2] = rotInverse(2, 0) * pointCloud[point * 3 + 0] + rotInverse(2, 1) * pointCloud[point * 3 + 1] +
+                rotInverse(2, 2) * pointCloud[point * 3 + 2];
+
+        }
+    }
+	
+	for(int p = 0; p < 640 * 480; p++)
+		depthData[p] = pointCloud[p * 3 + 2];///(float)reconstruction->getThreshold();
+	
+	/*
+	Eigen::Vector3f tr;
+	tr = -reconstruction->getCurrentTranslation();
+	reconstruction->getGlobalPreviousPointCloud()->getHostDepthMapTransformingOrganizedGlobalToCurrentPointCloud(curv,
+		imageCollection->getDepthDevice(), reconstruction->getCurrentRotation().inverse(), tr);
+	for(int p = 0; p < 640 * 480; p++)
+		depthData[p] = curv[p];///(float)reconstruction->getThreshold();
+	*/
+	myGLImageViewer->loadDepthComponentTexture(depthData, texVBO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight);
+	glPixelTransferf(GL_DEPTH_SCALE, 1);
+	
+}
+
 void reshape(int w, int h)
 {
 	windowWidth = w;
@@ -359,13 +409,29 @@ void reshape(int w, int h)
 
 }
 
-void displayDepthData()
+void displayCurvatureData()
 {
 	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();    
 
-	myGLImageViewer->loadDepthTexture(reconstruction->getCurrentDepthMap(), texVBO, REAL_DEPTH_FROM_DEPTHMAP_BO, 
+	reconstruction->getGlobalPreviousPointCloud()->getHostCurvature(curvature);
+	for(int i = 0; i < kinect->getImageWidth() * kinect->getImageHeight(); i++)
+		curv[i] = curvature[i] * 1300;
+	myGLImageViewer->loadDepthTexture(curv, texVBO, CURVATURE_MAP_FBO, reconstruction->getThreshold(), kinect->getImageWidth(), 
+		kinect->getImageHeight());
+	myGLImageViewer->drawRGBTexture(texVBO, CURVATURE_MAP_FBO, windowWidth, windowHeight);
+
+}
+
+void displayDepthData()
+{
+	
+	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	
+	myGLImageViewer->loadDepthTexture((unsigned short*)imageCollection->getDepthMap().data, texVBO, REAL_DEPTH_FROM_DEPTHMAP_BO, 
 		reconstruction->getThreshold(), kinect->getImageWidth(), kinect->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, REAL_DEPTH_FROM_DEPTHMAP_BO, windowWidth, windowHeight);
 
@@ -377,7 +443,8 @@ void displayRGBData()
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRGBMap(), texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, kinect->getImageWidth(), 
+		kinect->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, REAL_RGB_BO, windowWidth, windowHeight);
 
 }
@@ -389,7 +456,8 @@ void displayRaycastedData()
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();    
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRaycastImage(), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture(imageCollection->getRaycastImage(reconstruction->getVolumeSize(), 
+		reconstruction->getGlobalPreviousPointCloud()), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, RAYCAST_BO, windowWidth, windowHeight);
 
 }
@@ -397,9 +465,14 @@ void displayRaycastedData()
 void displayCloud(bool globalCoordinates = true)
 {
 	
-	reconstruction->getPointCloud(pointCloud, globalCoordinates);
-	reconstruction->getNormalVector(normalVector, globalCoordinates);
-
+	if(globalCoordinates) {
+		reconstruction->getGlobalPreviousPointCloud()->getHostPointCloud(pointCloud);
+		reconstruction->getGlobalPreviousPointCloud()->getHostNormalVector(normalVector, 1);
+	} else {
+		reconstruction->getCurrentPointCloud()->getHostPointCloud(pointCloud);
+		reconstruction->getCurrentPointCloud()->getHostNormalVector(normalVector, -1);
+	}
+	
 	myGLCloudViewer->loadIndices(indices, pointCloud);
 	myGLCloudViewer->loadVBOs(meshVBO, indices, pointCloud, normalVector);
 	
@@ -419,25 +492,75 @@ void displayCloud(bool globalCoordinates = true)
 	}
 }
 
+void displayQuadForVolumeRendering(bool front)
+{
+
+	glEnable(GL_DEPTH_TEST);
+	
+    glViewport(0, 0, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+    glLoadIdentity(); 
+	myGLCloudViewer->configureQuadAmbient(reconstruction->getThreshold());
+	
+	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
+		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
+		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
+		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
+	glScalef(scale[0], scale[1], scale[2]);
+	
+	if(!front) {
+		glEnable(GL_CULL_FACE);
+		glCullFace(GL_FRONT);
+	} else {
+		glDisable(GL_CULL_FACE);
+	}
+
+	myGLCloudViewer->drawQuad(quadVBO);
+	glPopMatrix();
+
+}
+
+void displayMedicalVolume()
+{
+
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
+	
+	glEnable(GL_TEXTURE_3D);
+	myGLCloudViewer->configureARAmbientWithBlending(reconstruction->getThreshold());
+	myGLCloudViewer->setAmbientIntensity(0.1);
+	myGLCloudViewer->setDiffuseIntensity(0.2);
+	myGLCloudViewer->setSpecularIntensity(0.5);
+	myGLCloudViewer->configureLight();
+
+	myGLImageViewer->setProgram(shaderProg[VRShaderID]);
+	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
+		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
+		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
+		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
+	glScalef(scale[0], scale[1], scale[2]);
+
+	myGLImageViewer->draw3DTexture(texVBO, AR_FROM_VOLUME_RENDERING_BO, MIN_MAX_OCTREE_BO, vrparams, FRONT_QUAD_RGB_FBO, BACK_QUAD_RGB_FBO, 
+		myGLCloudViewer->getEyePosition(), windowWidth/2, windowHeight/2, myGLCloudViewer, quadVBO, TRANSFER_FUNCTION_BO, NOISE_BO);
+	glPopMatrix();
+
+	glDisable(GL_BLEND);
+	glDisable(GL_ALPHA_TEST);	
+	glEnable(GL_DEPTH_TEST);
+
+}
+
 void displayARDataFromVolume()
 {
 	
-	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	displayCloud(true);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			
-	glBindFramebuffer(GL_FRAMEBUFFER, realFrameBuffer);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	displayCloud(false);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	loadARDepthDataBasedOnDepthMaps();
 
 	//Second Viewport: Virtual Object
 	glViewport(windowWidth/2, windowHeight/2, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRaycastImage(), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture(imageCollection->getRaycastImage(reconstruction->getVolumeSize(), 
+		reconstruction->getGlobalPreviousPointCloud()), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, RAYCAST_BO, windowWidth, windowHeight);
 
 	//Fourth Viewport: Virtual + Real Object
@@ -445,19 +568,29 @@ void displayARDataFromVolume()
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRGBMap(), texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
 
+	occlusionParams.texVBO = texVBO;
+	occlusionParams.realRGBIndex = REAL_RGB_BO;
+	occlusionParams.realDepthIndex = REAL_DEPTH_FROM_DEPTHBUFFER_BO;
+	occlusionParams.virtualRGBIndex = VIRTUAL_RGB_BO;
+	occlusionParams.virtualDepthIndex = VIRTUAL_DEPTH_BO;
+	occlusionParams.windowWidth = windowWidth;
+	occlusionParams.windowHeight = windowHeight;
+	occlusionParams.ARPolygonal = false;
+	occlusionParams.ARFromKinectFusionVolume = true;
+	occlusionParams.ARFromVolumeRendering = false;
+	occlusionParams.alphaBlending = true;
+	occlusionParams.ghostViewBasedOnCurvatureMap = false;
+	
 	myGLImageViewer->setProgram(shaderProg[1]);
-	myGLImageViewer->drawARTextureWithOcclusion(texVBO, REAL_RGB_BO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, VIRTUAL_RGB_BO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight);
+	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
 }
 
 void displayARDataFromOBJFile()
 {
 	
-	if(ARConfiguration)
-		displayCloud(true);
-
 	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
@@ -487,15 +620,27 @@ void displayARDataFromOBJFile()
 
 	}
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRGBMap(), texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
+	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
 	
 	//Third Viewport: Virtual + Real Object
-	glViewport(windowWidth/2, 0, windowWidth/2, windowHeight/2);
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();   
 	
+	occlusionParams.texVBO = texVBO;
+	occlusionParams.realRGBIndex = REAL_RGB_BO;
+	occlusionParams.realDepthIndex = REAL_DEPTH_FROM_DEPTHBUFFER_BO;
+	occlusionParams.virtualRGBIndex = VIRTUAL_RGB_BO;
+	occlusionParams.virtualDepthIndex = VIRTUAL_DEPTH_BO;
+	occlusionParams.windowWidth = windowWidth;
+	occlusionParams.windowHeight = windowHeight;
+	occlusionParams.ARPolygonal = true;
+	occlusionParams.ARFromKinectFusionVolume = false;
+	occlusionParams.ARFromVolumeRendering = false;
+	occlusionParams.alphaBlending = true;
+
 	myGLImageViewer->setProgram(shaderProg[1]);
-	myGLImageViewer->drawARTextureWithOcclusion(texVBO, REAL_RGB_BO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, VIRTUAL_RGB_BO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight, true);
+	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
 }
 
@@ -503,71 +648,56 @@ void displayARDataFromVolumeRendering()
 {
 	
 	glEnable(GL_DEPTH_TEST);
+	
+	reconstruction->getGlobalPreviousPointCloud()->getHostCurvature(curvature);
+	myGLImageViewer->loadDepthComponentTexture(curvature, texVBO, CURVATURE_MAP_FBO, windowWidth, windowHeight);
+	
+	glBindFramebuffer(GL_FRAMEBUFFER, backQuadFrameBuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	displayQuadForVolumeRendering(false);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	if(ARConfiguration)
-		displayCloud(true);
-			
+	glBindFramebuffer(GL_FRAMEBUFFER, frontQuadFrameBuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	displayQuadForVolumeRendering(true);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	
 	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	displayCloud(true);
+	displayMedicalVolume();	
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-			
-	glBindFramebuffer(GL_FRAMEBUFFER, realFrameBuffer);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	displayCloud(false);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	
-	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
-	myGLCloudViewer->configureQuadAmbient(reconstruction->getThreshold());
-	
-	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
-		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
-		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
-		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
-	glScalef(scale[0], scale[1], scale[2]);
 
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_FRONT);
-	myGLImageViewer->drawQuads(1.0f/vrparams.scaleWidth, 1.0f/vrparams.scaleHeight, 1.0f/vrparams.scaleDepth);
-	myGLImageViewer->loadFrameBufferTexture(texVBO, BACK_FBO, 0, windowHeight/2, windowWidth/2, windowHeight/2);
-	glDisable(GL_CULL_FACE);
-	
-	myGLImageViewer->drawQuads(1.0f/vrparams.scaleWidth, 1.0f/vrparams.scaleHeight, 1.0f/vrparams.scaleDepth);
-	myGLImageViewer->loadFrameBufferTexture(texVBO, FRONT_FBO, 0, windowHeight/2, windowWidth/2, windowHeight/2);
-	glPopMatrix();
-	
-	glViewport(windowWidth/2, windowHeight/2, windowWidth/2, windowHeight/2);
-	glEnable(GL_TEXTURE_3D);
-	myGLCloudViewer->configureARAmbientWithBlending(reconstruction->getThreshold());
-	myGLCloudViewer->setAmbientIntensity(0);
-	myGLCloudViewer->setDiffuseIntensity(0.01);
-	myGLCloudViewer->setSpecularIntensity(0.01);
-
-	myGLImageViewer->setProgram(shaderProg[VRShaderID]);
-	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
-		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
-		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
-		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
-	glScalef(scale[0], scale[1], scale[2]);
-
-	myGLImageViewer->draw3DTexture(texVBO, AR_FROM_VOLUME_RENDERING_BO, MIN_MAX_OCTREE_BO, vrparams, FRONT_FBO, BACK_FBO, 
-		myGLCloudViewer->getEyePosition(), windowWidth/2, windowHeight/2, TRANSFER_FUNCTION_BO, NOISE_BO);
-	glPopMatrix();
-
-	glDisable(GL_BLEND);
-	glDisable(GL_ALPHA_TEST);	
-	glEnable(GL_DEPTH_TEST);
+	loadARDepthDataBasedOnDepthMaps();	
 	
 	//Fourth Viewport: Virtual + Real Object
-	glViewport(windowWidth/2, 0, windowWidth/2, windowHeight/2);
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();
 
-	myGLImageViewer->loadRGBTexture(reconstruction->getRGBMap(), texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
-	myGLImageViewer->loadFrameBufferTexture(texVBO, VIRTUAL_RGB_BO, windowWidth/2, windowHeight/2, windowWidth/2, windowHeight/2);
+	myGLImageViewer->loadRGBTexture((const unsigned char*)imageCollection->getRGBMap().data, texVBO, REAL_RGB_BO, kinect->getImageWidth(), kinect->getImageHeight());
+
+	occlusionParams.texVBO = texVBO;
+	occlusionParams.realRGBIndex = REAL_RGB_BO;
+	occlusionParams.realDepthIndex = REAL_DEPTH_FROM_DEPTHBUFFER_BO;
+	occlusionParams.virtualRGBIndex = VIRTUAL_RGB_BO;
+	occlusionParams.virtualDepthIndex = VIRTUAL_DEPTH_BO;
+	occlusionParams.curvatureMapIndex = CURVATURE_MAP_FBO;
+	occlusionParams.windowWidth = windowWidth;
+	occlusionParams.windowHeight = windowHeight;
+	occlusionParams.ARPolygonal = false;
+	occlusionParams.ARFromKinectFusionVolume = false;
+	occlusionParams.ARFromVolumeRendering = true;
+	occlusionParams.alphaBlending = true;
+	occlusionParams.ghostViewBasedOnCurvatureMap = false;
+	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
+	occlusionParams.curvatureWeight = curvatureWeight;
+	occlusionParams.distanceFalloffWeight = distanceFalloffWeight;
+	occlusionParams.focusPoint[0] = focusPoint[0];
+	occlusionParams.focusPoint[1] = focusPoint[1];
+	occlusionParams.focusRadius = focusRadius;
 
 	myGLImageViewer->setProgram(shaderProg[1]);
-	myGLImageViewer->drawARTextureWithOcclusion(texVBO, REAL_RGB_BO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, VIRTUAL_RGB_BO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight);
+	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 
 }
 
@@ -582,6 +712,8 @@ void display()
 			displayCloud();
 		if(showDepthMap)
 			displayDepthData();
+		if(showCurvatureMap)
+			displayCurvatureData();
 		if(showRGBMap)
 			displayRGBData();
 		if(showRaycasting && reconstruction->hasImage())
@@ -612,29 +744,42 @@ void idle()
 	
 	bool preGlobalTimeGreaterThanZero;
 	if(kinect->grabFrame()) {
+
+		if(!ARConfiguration)
+			imageCollection->load(kinect->getRGBImage(), kinect->getDepthImage());
+
 		if(hasFaceDetection) {
 			if(faceDetected) {
 				reconstruction->stopTracking(false);
-				faceDetector->segmentFace(kinect->getRGBImage(), kinect->getDepthImage());
+				faceDetector->segmentFace(imageCollection);
 			} else {
 				reconstruction->reset();
 				reconstruction->stopTracking(true);
-				faceDetected = faceDetector->run(kinect->getRGBImage(), kinect->getDepthImage());
+				faceDetected = faceDetector->run(imageCollection);
 				if(faceDetected)
-					faceDetector->segmentFace(kinect->getRGBImage(), kinect->getDepthImage());
+					faceDetector->segmentFace(imageCollection);
 			}
 			//to check if the reconstruction was reseted
 			if(reconstruction->getGlobalTime() > 0) preGlobalTimeGreaterThanZero = true;
 			else preGlobalTimeGreaterThanZero = false;
 		}
-		if(!ARConfiguration)
-			reconstruction->run(kinect->getRGBImage(), kinect->getDepthImage()); 
+
+		if(!ARConfiguration) {
+			imageCollection->applyBilateralFilter();
+			imageCollection->applyDepthTruncation(reconstruction->getThreshold());
+			imageCollection->applyPyrDown();
+			imageCollection->convertToPointCloud(reconstruction->getCurrentPointCloud());
+			imageCollection->applyDepthTruncation(imageCollection->getDepthDevice(), reconstruction->getThreshold());
+			pcl::device::sync ();
+			reconstruction->run(imageCollection); 
+		}
+
 		//if the reconstruction was reseted, the face is no more detected
 		if(hasFaceDetection)
 			if(reconstruction->getGlobalTime() == 0 && preGlobalTimeGreaterThanZero)
 				faceDetected = false;
 		if(!ARConfiguration && !AR && integrateColors)
-			coloredReconstructionMediator->updateColorVolume(reconstruction);
+			coloredReconstructionMediator->updateColorVolume(imageCollection->getRgbDevice(), reconstruction);
 		if(workAround != 2)
 			workAround = 1;
 	}
@@ -657,13 +802,13 @@ void keyboard(unsigned char key, int x, int y)
 		std::cout << "Pause..." << std::endl;
 		reconstruction->stopTracking(true);
 		if(isHeadPoseEstimationEnabled)
-			headPoseEstimationMediator->stopTracking(true, reconstruction);
+			headPoseEstimationMediator->stopTracking(true, (unsigned short*)imageCollection->getDepthMap().data, reconstruction);
 		break;
 	case (int)'c' : case (int)'C':
 		std::cout << "Continue..." << std::endl;
 		reconstruction->stopTracking(false);
 		if(isHeadPoseEstimationEnabled)
-			headPoseEstimationMediator->stopTracking(false, reconstruction);
+			headPoseEstimationMediator->stopTracking(false, (unsigned short*)imageCollection->getDepthMap().data, reconstruction);
 		break;
 	case (int)'s' : case (int)'S':
 		if(AR && scaleOn) {
@@ -692,14 +837,20 @@ void keyboard(unsigned char key, int x, int y)
 			
 			reconstruction->enableOnlyTracking();
 			hasFaceDetection = false;
+			myGLCloudViewer->setEyePosition(1, 0, 120);
+			focusRadius = 500;
+
 			std::cout << "Enabling AR" << std::endl;
 			std::cout << "AR Enabled: Click the window to position the object (if necessary, use the scale factor (s)" << std::endl;
-			myGLCloudViewer->setEyePosition(1, 0, 120);
-
+			
+			
 		} else if(ARConfiguration) {
+
 			ARConfiguration = false;
-			std::cout << "AR Enabled: Configuration finished" << std::endl;
 			myGLCloudViewer->setEyePosition(1, 0, 170);
+			
+			std::cout << "AR Enabled: Configuration finished" << std::endl;
+			
 		} else if(AR && !ARConfiguration){
 			AR = false;
 		}
@@ -710,6 +861,9 @@ void keyboard(unsigned char key, int x, int y)
 		break;
 	case (int)'u':
 		shader = !shader;
+		break;
+	case (int)'d':
+		focusRadius = 50;
 		break;
 	default:
 		break;
@@ -739,6 +893,12 @@ void specialKeyboard(int key, int x, int y)
 			vrparams.ks += 0.01;
 		if(ktOn)
 			vrparams.kt += 1;
+		if(curvatureWeightOn)
+			curvatureWeight += 0.5;
+		if(focusRadiusOn)
+			focusRadius += 5;
+		if(distanceFallOffWeightOn)
+			distanceFalloffWeight += 0.1;
 		break;
 	case GLUT_KEY_DOWN:
 		if(translationOn)
@@ -759,6 +919,18 @@ void specialKeyboard(int key, int x, int y)
 			vrparams.ks -= 0.01;
 		if(ktOn)
 			vrparams.kt -= 1;
+		if(curvatureWeightOn) {
+			curvatureWeight -= 0.5;
+			if(curvatureWeight < 0) curvatureWeight = 0;
+		}
+		if(focusRadiusOn) {
+			focusRadius -= 5;
+			if(focusRadius < 0) focusRadius = 0;
+		}
+		if(distanceFallOffWeightOn) {
+			distanceFalloffWeight -= 0.1;
+			if(distanceFalloffWeight < 0) distanceFalloffWeight = 0;
+		}
 		break;
 	case GLUT_KEY_LEFT:
 		if(translationOn)
@@ -801,9 +973,12 @@ void specialKeyboard(int key, int x, int y)
 void mouse(int button, int state, int x, int y) 
 {
 	if (button == GLUT_LEFT_BUTTON)
-		if (state == GLUT_UP)
+		if (state == GLUT_UP) {
+			focusPoint[0] = x;
+			focusPoint[1] = windowHeight/2 - (y - windowHeight/2);
 			if(ARConfiguration)
 				positionVirtualObject(x, y);
+		}
 
 	glutPostRedisplay();
 }
@@ -860,6 +1035,9 @@ void thresholdMenu(int id)
 		isoSurfaceThresholdModificationOn = false;
 		ksOn = false;
 		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
 		break;
 	case 1:
 		translationOn = false;
@@ -870,6 +1048,9 @@ void thresholdMenu(int id)
 		isoSurfaceThresholdModificationOn = false; 
 		ksOn = false;
 		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
 		break;
 	case 2:
 		translationOn = false;
@@ -880,6 +1061,9 @@ void thresholdMenu(int id)
 		isoSurfaceThresholdModificationOn = true; 
 		ksOn = false;
 		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
 		break;
 	case 3:
 		translationOn = false;
@@ -890,6 +1074,9 @@ void thresholdMenu(int id)
 		isoSurfaceThresholdModificationOn = false; 
 		ksOn = true;
 		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
 		break;
 	case 4:
 		translationOn = false;
@@ -900,6 +1087,48 @@ void thresholdMenu(int id)
 		isoSurfaceThresholdModificationOn = false; 
 		ksOn = false;
 		ktOn = true;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
+		break;
+	case 5:
+		translationOn = false;
+		rotationOn = false;
+		scaleOn = false;
+		earlyRayTerminationOn = false;
+		stepSizeModificationOn = false;
+		isoSurfaceThresholdModificationOn = false; 
+		ksOn = false;
+		ktOn = false;
+		curvatureWeightOn = true;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = false;
+		break;
+	case 6:
+		translationOn = false;
+		rotationOn = false;
+		scaleOn = false;
+		earlyRayTerminationOn = false;
+		stepSizeModificationOn = false;
+		isoSurfaceThresholdModificationOn = false; 
+		ksOn = false;
+		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = false;
+		distanceFallOffWeightOn = true;
+		break;
+	case 7:
+		translationOn = false;
+		rotationOn = false;
+		scaleOn = false;
+		earlyRayTerminationOn = false;
+		stepSizeModificationOn = false;
+		isoSurfaceThresholdModificationOn = false; 
+		ksOn = false;
+		ktOn = false;
+		curvatureWeightOn = false;
+		focusRadiusOn = true;
+		distanceFallOffWeightOn = false;
 		break;
 	}
 }
@@ -948,6 +1177,11 @@ void otherFunctionsMenu(int id)
 	case 0:
 		saveModel();
 		break;
+	case 1:
+		showCurvatureMap = !showCurvatureMap;
+		if(showCurvatureMap) showDepthMap = false;
+		else showDepthMap = true;
+		break;
 	}
 }
 
@@ -973,6 +1207,9 @@ void createMenu()
 		glutAddMenuEntry("Change Iso Surface", 2);
 		glutAddMenuEntry("Change Ks (Context-Preserving VR)", 3);
 		glutAddMenuEntry("Change Kt (Context-Preserving VR)", 4);
+		glutAddMenuEntry("Change Curvature Weight (Ghosted Views)", 5);
+		glutAddMenuEntry("Change Distance Fall Off Weight (Ghosted Views)", 6);
+		glutAddMenuEntry("Change Focus Radius (Ghosted Views)", 7);
 
 	transformationMenuID = glutCreateMenu(transformationMenu);
 		glutAddMenuEntry("Change Translation", 0);
@@ -981,6 +1218,7 @@ void createMenu()
 
 	otherFunctionsMenuID = glutCreateMenu(otherFunctionsMenu);
 		glutAddMenuEntry("Save Model", 0);
+		glutAddMenuEntry("Show/Hide Curvature Map", 1);
 
 	glutCreateMenu(mainMenu);
 		glutAddSubMenu("Transformation", transformationMenuID);
@@ -999,21 +1237,27 @@ void init()
 	glClearColor( 0.0f, 0.0f, 0.0f, 0.0 );
 	glShadeModel(GL_SMOOTH);
 	glPixelStorei( GL_UNPACK_ALIGNMENT, 1);  
-
+	
 	//buffer objects
 	if(texVBO[0] == 0)
-		glGenTextures(15, texVBO);
+		glGenTextures(20, texVBO);
 	if(meshVBO[0] == 0)
 		glGenBuffers(4, meshVBO);
+	if(quadVBO[0] == 0)
+		glGenBuffers(4, quadVBO);
 	if(virtualFrameBuffer == 0)
 		glGenFramebuffers(1, &virtualFrameBuffer);
 	if(realFrameBuffer == 0)
 		glGenFramebuffers(1, &realFrameBuffer);
+	if(frontQuadFrameBuffer == 0)
+		glGenFramebuffers(1, &frontQuadFrameBuffer);
+	if(backQuadFrameBuffer == 0)
+		glGenFramebuffers(1, &backQuadFrameBuffer);
 
 	myGLImageViewer = new MyGLImageViewer();
 	myGLCloudViewer = new MyGLCloudViewer();
 	myGLCloudViewer->setEyePosition(1, 0, 120);
-
+	
 	if(ARPolygonal) {
 	
 		//load the polygonal model
@@ -1055,6 +1299,8 @@ void init()
 		//compute a noise texture to allow the use of stochastic jittering (i.e. random ray start)
 		myGLImageViewer->load2DNoiseTexture(texVBO, NOISE_BO, 32, 32);
 		
+		myGLCloudViewer->loadVBOQuad(quadVBO, 1.0f/vrparams.scaleWidth, 1.0f/vrparams.scaleHeight, 1.0f/vrparams.scaleDepth);
+
 		//initialize some parameters
 		vrparams.stepSize = 1.0/50.0;
 		vrparams.earlyRayTerminationThreshold = 0.95;
@@ -1073,10 +1319,12 @@ void init()
 
 	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight);
 	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, windowWidth, windowHeight);
+	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, FRONT_QUAD_DEPTH_FBO, windowWidth, windowHeight);
+	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, BACK_QUAD_DEPTH_FBO, windowWidth, windowHeight);
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, VIRTUAL_RGB_BO, windowWidth/2, windowHeight/2);
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, REAL_RGB_FROM_FBO, windowWidth/2, windowHeight/2);
-	myGLImageViewer->loadRGBTexture(NULL, texVBO, FRONT_FBO, windowWidth/2, windowHeight/2);
-	myGLImageViewer->loadRGBTexture(NULL, texVBO, BACK_FBO, windowWidth/2, windowHeight/2);
+	myGLImageViewer->loadRGBTexture(NULL, texVBO, FRONT_QUAD_RGB_FBO, windowWidth/2, windowHeight/2);
+	myGLImageViewer->loadRGBTexture(NULL, texVBO, BACK_QUAD_RGB_FBO, windowWidth/2, windowHeight/2);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[VIRTUAL_DEPTH_BO], 0);
@@ -1088,6 +1336,20 @@ void init()
 	glBindFramebuffer(GL_FRAMEBUFFER, realFrameBuffer);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[REAL_DEPTH_FROM_DEPTHBUFFER_BO], 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[REAL_RGB_FROM_FBO], 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "FBO OK" << std::endl;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, frontQuadFrameBuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[FRONT_QUAD_DEPTH_FBO], 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[FRONT_QUAD_RGB_FBO], 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "FBO OK" << std::endl;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, backQuadFrameBuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[BACK_QUAD_DEPTH_FBO], 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[BACK_QUAD_RGB_FBO], 0);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 		std::cout << "FBO OK" << std::endl;
@@ -1105,6 +1367,28 @@ void init()
 
 }
 
+void releaseObjects() {
+
+  delete kinect;
+  delete imageCollection;
+  delete reconstruction;
+  delete myGLImageViewer;
+  delete myGLCloudViewer;
+  if(ARVolumetric) {
+	  delete medicalVolume;
+	  delete minMaxOctree;
+	  delete transferFunction;
+	  delete triCubicInterpolationPreFilter;
+  }
+  if(integrateColors)
+	  delete coloredReconstructionMediator;
+  if(isHeadPoseEstimationEnabled)
+	  delete headPoseEstimationMediator;
+  if(hasFaceDetection)
+	  delete faceDetector;
+
+}
+
 int main(int argc, char **argv) {
 
   pcl::gpu::setDevice (0);
@@ -1117,9 +1401,17 @@ int main(int argc, char **argv) {
   
   try
   {
-	//Initialize the Reconstruction object
+	//Initialize some objects
 	reconstruction = new Reconstruction(volumeSize);
 	kinect = new Kinect();
+	imageCollection = new Image(640, 480);
+
+	imageCollection->setDepthIntrinsics(kinect->getFocalLength(), kinect->getFocalLength());
+	imageCollection->setTrancationDistance(volumeSize);
+
+	reconstruction->setIntrinsics(imageCollection->getIntrinsics());
+	reconstruction->setTrancationDistance(imageCollection->getTrancationDistance());
+
 	loadArguments(argc, argv, reconstruction);
 	
 	//Initialize the GL window
@@ -1150,7 +1442,7 @@ int main(int argc, char **argv) {
 	initShader("Shaders/VRPreIntegrationRaycasting", 4);
 	initShader("Shaders/VRLocalIlluminationPreIntegrationRaycasting", 5);
 	initShader("Shaders/VRNonPolygonalRaycasting", 6);
-
+	
 	myGLCloudViewer->setProgram(shaderProg[0]);
 	myGLImageViewer->setProgram(shaderProg[1]);
 	
@@ -1166,22 +1458,7 @@ int main(int argc, char **argv) {
     cout << "Exception" << endl;
   }
 
-  delete kinect;
-  delete reconstruction;
-  delete myGLImageViewer;
-  delete myGLCloudViewer;
-  if(ARVolumetric) {
-	  delete medicalVolume;
-	  delete minMaxOctree;
-	  delete transferFunction;
-	  delete triCubicInterpolationPreFilter;
-  }
-  if(integrateColors)
-	  delete coloredReconstructionMediator;
-  if(isHeadPoseEstimationEnabled)
-	  delete headPoseEstimationMediator;
-  if(hasFaceDetection)
-	  delete faceDetector;
+  releaseObjects();
   return 0;
 
 }

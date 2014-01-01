@@ -32,7 +32,7 @@ void MyGLImageViewer::loadDepthTexture(unsigned short *data, GLuint *texVBO, int
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, imageWidth, imageHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, depthData);
 }
 	
-void MyGLImageViewer::loadDepthComponentTexture(unsigned short *data, GLuint *texVBO, int index, int windowWidth, int windowHeight)
+void MyGLImageViewer::loadDepthComponentTexture(float *data, GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
 
 	glBindTexture(GL_TEXTURE_2D, texVBO[index]);
@@ -56,6 +56,20 @@ void MyGLImageViewer::loadRGBTexture(const unsigned char *data, GLuint *texVBO, 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, imageWidth, imageHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+
+}
+
+void MyGLImageViewer::loadRGBTextureWithMipMaps(const unsigned char *data, GLuint *texVBO, int index, int imageWidth, int imageHeight)
+{
+
+	glBindTexture(GL_TEXTURE_2D, texVBO[index]);
+	
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+	gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGB, imageWidth, imageHeight, GL_RGB, GL_UNSIGNED_BYTE, data);
 
 }
 
@@ -197,36 +211,20 @@ void MyGLImageViewer::drawRGBTexture(GLuint *texVBO, int index, int windowWidth,
 	//	glUseProgram(0);
 }
 
-
-void MyGLImageViewer::drawARTextureWithOcclusion(GLuint *texVBO, int realRGBIndex, int realDepthIndex, int virtualRGBIndex, int virtualDepthIndex, 
-		int windowWidth, int windowHeight, bool ARPolygonal)
+void MyGLImageViewer::drawRGBTextureForSaliencyMap(GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
-	
+
 	glUseProgram(shaderProg);
 	
 	gluOrtho2D( 0, windowWidth/2, windowHeight/2, 0 ); 
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity();
-	
-	GLuint texLoc = glGetUniformLocation(shaderProg, "realRGB");
+
+	GLuint texLoc = glGetUniformLocation(shaderProg, "image");
 	glUniform1i(texLoc, 0);
-	texLoc = glGetUniformLocation(shaderProg, "realDepth");
-	glUniform1i(texLoc, 1);
-	texLoc = glGetUniformLocation(shaderProg, "virtualRGB");
-	glUniform1i(texLoc, 2);
-	texLoc = glGetUniformLocation(shaderProg, "virtualDepth");
-	glUniform1i(texLoc, 3);
-	texLoc = glGetUniformLocation(shaderProg, "ARPolygonal");
-	glUniform1i(texLoc, (int)ARPolygonal);
 	
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, texVBO[realRGBIndex]);
-	glActiveTexture(GL_TEXTURE1);
-	glBindTexture(GL_TEXTURE_2D, texVBO[realDepthIndex]);
-	glActiveTexture(GL_TEXTURE2);
-	glBindTexture(GL_TEXTURE_2D, texVBO[virtualRGBIndex]);
-	glActiveTexture(GL_TEXTURE3);
-	glBindTexture(GL_TEXTURE_2D, texVBO[virtualDepthIndex]);
+	glBindTexture(GL_TEXTURE_2D, texVBO[index]);
 
 	glBegin(GL_QUADS);
 		glTexCoord2f(0.0f, 0.0f); 
@@ -239,6 +237,87 @@ void MyGLImageViewer::drawARTextureWithOcclusion(GLuint *texVBO, int realRGBInde
 		glVertex2f(0.0f, windowHeight/2);
 	glEnd();
 
+	glActiveTexture(GL_TEXTURE0);
+	glDisable(GL_TEXTURE_2D);
+	
+	glUseProgram(0);
+
+}
+
+void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionParams)
+{
+	
+	glUseProgram(shaderProg);
+	
+	gluOrtho2D( 0, occlusionParams.windowWidth/2, occlusionParams.windowHeight/2, 0 ); 
+	glMatrixMode( GL_MODELVIEW );
+	glLoadIdentity();
+	
+	GLuint texLoc = glGetUniformLocation(shaderProg, "realRGBTexture");
+	glUniform1i(texLoc, 0);
+	texLoc = glGetUniformLocation(shaderProg, "realDepthTexture");
+	glUniform1i(texLoc, 1);
+	texLoc = glGetUniformLocation(shaderProg, "virtualRGBTexture");
+	glUniform1i(texLoc, 2);
+	texLoc = glGetUniformLocation(shaderProg, "virtualDepthTexture");
+	glUniform1i(texLoc, 3);
+	texLoc = glGetUniformLocation(shaderProg, "ARPolygonal");
+	glUniform1i(texLoc, (int)occlusionParams.ARPolygonal);
+	texLoc = glGetUniformLocation(shaderProg, "ARFromKinectFusionVolume");
+	glUniform1i(texLoc, (int)occlusionParams.ARFromKinectFusionVolume);
+	texLoc = glGetUniformLocation(shaderProg, "ARFromVolumeRendering");
+	glUniform1i(texLoc, (int)occlusionParams.ARFromVolumeRendering);
+	texLoc = glGetUniformLocation(shaderProg, "alphaBlending");
+	glUniform1i(texLoc, (int)occlusionParams.alphaBlending);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnCurvatureMap");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnCurvatureMap);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnDistanceFalloff");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnDistanceFalloff);
+	if(occlusionParams.ARFromVolumeRendering)
+	{
+		if(occlusionParams.ghostViewBasedOnCurvatureMap) {
+			texLoc = glGetUniformLocation(shaderProg, "curvatureMap");
+			glUniform1i(texLoc, 9);
+			texLoc = glGetUniformLocation(shaderProg, "curvatureWeight");
+			glUniform1f(texLoc, occlusionParams.curvatureWeight);
+		}
+		if(occlusionParams.ghostViewBasedOnDistanceFalloff) {
+			texLoc = glGetUniformLocation(shaderProg, "distanceFalloffWeight");
+			glUniform1f(texLoc, occlusionParams.distanceFalloffWeight);
+		}
+		texLoc = glGetUniformLocation(shaderProg, "focusPoint");
+		glUniform2f(texLoc, occlusionParams.focusPoint[0], occlusionParams.focusPoint[1]);
+		texLoc = glGetUniformLocation(shaderProg, "focusRadius");
+		glUniform1f(texLoc, occlusionParams.focusRadius);
+	}
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.realRGBIndex]);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.realDepthIndex]);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.virtualRGBIndex]);
+	glActiveTexture(GL_TEXTURE3);
+	glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.virtualDepthIndex]);
+	if(occlusionParams.ARFromVolumeRendering)
+	{
+		if(occlusionParams.ghostViewBasedOnCurvatureMap) {
+			glActiveTexture(GL_TEXTURE9);
+			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.curvatureMapIndex]);
+		}
+	}
+
+	glBegin(GL_QUADS);
+		glTexCoord2f(0.0f, 0.0f); 
+		glVertex2f(0.0f, 0.0f);
+		glTexCoord2f(1.0f, 0.0f); 
+		glVertex2f(occlusionParams.windowWidth/2, 0.0f);
+		glTexCoord2f(1.0f, 1.0f); 
+		glVertex2f(occlusionParams.windowWidth/2, occlusionParams.windowHeight/2);
+		glTexCoord2f(0.0f, 1.0f); 
+		glVertex2f(0.0f, occlusionParams.windowHeight/2);
+	glEnd();
+
 	glUseProgram(0);
 
 	glActiveTexture(GL_TEXTURE0);
@@ -249,11 +328,14 @@ void MyGLImageViewer::drawARTextureWithOcclusion(GLuint *texVBO, int realRGBInde
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE3);
 	glDisable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE9);
+	glDisable(GL_TEXTURE_2D);
 
 }
 
 void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, VRParams params, int frontFBOIndex, int backFBOIndex, 
-	float* cameraPos, int windowWidth, int windowHeight, int transferFunctionIndex, int noiseIndex)
+	float* cameraPos, int windowWidth, int windowHeight, MyGLCloudViewer *myGLCloudViewer, GLuint *quadVBO, int transferFunctionIndex, 
+	int noiseIndex)
 {	
 	
 	glUseProgram(shaderProg);
@@ -332,8 +414,7 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 
 	}
 	
-	drawQuads(1.0f/params.scaleWidth, 1.0f/params.scaleHeight, 1.0f/params.scaleDepth);	
-	
+	myGLCloudViewer->drawQuad(quadVBO);
 	if(transferFunctionIndex != 0) {
 	
 		texLoc = glGetUniformLocation(shaderProg, "transferFunction");
@@ -384,100 +465,6 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE7);
 	glDisable(GL_TEXTURE_3D);
-
-}
-
-void MyGLImageViewer::drawQuads(float x, float y, float z, GLenum target) {
-
-
-	bool color = true;
-	glBegin(GL_QUADS);
-	//front
-	if(color) glColor3f(0, 1, 1);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 1.0f);
-	glVertex3f(-x, y, z);
-	if(color) glColor3f(0, 0, 1);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 1.0f);
-	glVertex3f(-x, -y, z);
-	if(color) glColor3f(1, 0, 1);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 1.0f);
-	glVertex3f(x, -y, z);
-	if(color) glColor3f(1, 1, 1);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 1.0f);
-	glVertex3f(x, y, z);
-	
-	//left
-	if(color) glColor3f(0, 1, 0);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 0.0f);
-	glVertex3f(-x, y, -z);
-	if(color) glColor3f(0, 0, 0);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 0.0f);
-	glVertex3f(-x, -y, -z);
-	if(color) glColor3f(0, 0, 1);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 1.0f);
-	glVertex3f(-x, -y, z);
-	if(color) glColor3f(0, 1, 1);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 1.0f);
-	glVertex3f(-x, y, z);
-
-	//back
-	if(color) glColor3f(1, 1, 0);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 0.0f);
-	glVertex3f(x, y, -z);
-	if(color) glColor3f(1, 0, 0);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 0.0f);
-	glVertex3f(x, -y, -z);
-	if(color) glColor3f(0, 0, 0);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 0.0f);
-	glVertex3f(-x, -y, -z);
-	if(color) glColor3f(0, 1, 0);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 0.0f);
-	glVertex3f(-x, y, -z);
-
-	//right
-	if(color) glColor3f(1, 1, 1);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 1.0f);
-	glVertex3f(x, y, z);
-	if(color) glColor3f(1, 0, 1);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 1.0f);
-	glVertex3f(x, -y, z);
-	if(color) glColor3f(1, 0, 0);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 0.0f);
-	glVertex3f(x, -y, -z);
-	if(color) glColor3f(1, 1, 0);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 0.0f);
-	glVertex3f(x, y, -z);
-
-	//top
-	if(color) glColor3f(0, 1, 0);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 0.0f);
-	glVertex3f(-x, y, -z);
-	if(color) glColor3f(0, 1, 1);
-	glMultiTexCoord3f(target, 0.0f, 1.0f, 1.0f);
-	glVertex3f(-x, y, z);
-	if(color) glColor3f(1, 1, 1);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 1.0f);
-	glVertex3f(x, y, z);
-	if(color) glColor3f(1, 1, 0);
-	glMultiTexCoord3f(target, 1.0f, 1.0f, 0.0f);
-	glVertex3f(x, y, -z);
-
-	//bottom
-	if(color) glColor3f(1, 0, 0);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 0.0f);
-	glVertex3f(x, -y, -z);
-	if(color) glColor3f(1, 0, 1);
-	glMultiTexCoord3f(target, 1.0f, 0.0f, 1.0f);
-	glVertex3f(x, -y, z);
-	if(color) glColor3f(0, 0, 1);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 1.0f);
-	glVertex3f(-x, -y, z);
-	if(color) glColor3f(0, 0, 0);
-	glMultiTexCoord3f(target, 0.0f, 0.0f, 0.0f);
-	glVertex3f(-x, -y, -z);
-	
-	glEnd();
-
 
 }
 

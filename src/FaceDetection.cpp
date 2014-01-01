@@ -88,7 +88,7 @@ bool FaceDetection::detectFace(IplImage* img, unsigned short *depthData)
 	return false;
 }
 // Function to detect and draw any faces that is present in an image
-bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage)
+bool FaceDetection::run(Image *image)
 {
 
 	if(!isCascadeLoaded) {
@@ -109,8 +109,8 @@ bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boos
 		storage = cvCreateMemStorage(0);
 	
 	// Convert the data
-	rgbImage->fillRGB(this->rgbImage->width, this->rgbImage->height, (unsigned char*)this->rgbImage->imageData);
-	depthImage->fillDepthImageRaw(this->rgbImage->width, this->rgbImage->height, depthData);
+	this->rgbImage->imageData = (char*)image->getRGBMap().data;
+	this->depthData = (unsigned short*)image->getDepthMap().data;
 
 	// Find whether the cascade is loaded, to find the faces. If yes, then:
 	if(isCascadeLoaded)
@@ -118,9 +118,9 @@ bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boos
 		if(detectFace(this->rgbImage, depthData))
 		{
 			segmentFace(this->rgbImage, depthData);
-
-			rgbImage = convertIplImageToOpenNIWrapper();
-			depthImage = convertUnsignedShortToOpenNIWrapper();
+			memcpy((void*)image->getRGBMap().data, this->rgbImage->imageData, this->rgbImage->width * this->rgbImage->height * 3 * sizeof(char));
+			memcpy((void*)image->getDepthMap().data, this->depthData, this->rgbImage->width * this->rgbImage->height * sizeof(unsigned short));
+			image->updateDeviceData();
 			return true;
 		}
 	}
@@ -131,43 +131,16 @@ bool FaceDetection::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boos
 
 }
 
-void FaceDetection::segmentFace(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage)
+void FaceDetection::segmentFace(Image *image)
 {
 	// Convert the data
-	rgbImage->fillRGB(this->rgbImage->width, this->rgbImage->height, (unsigned char*)this->rgbImage->imageData);
-	depthImage->fillDepthImageRaw(this->rgbImage->width, this->rgbImage->height, depthData);
-	
-	segmentFace(this->rgbImage, depthData);
-	
-	rgbImage = convertIplImageToOpenNIWrapper();
-	depthImage = convertUnsignedShortToOpenNIWrapper();
+	this->rgbImage->imageData = (char*)image->getRGBMap().data;
+	this->depthData = (unsigned short*)image->getDepthMap().data;
 
+	segmentFace(this->rgbImage, this->depthData);
+	
+	memcpy((void*)image->getRGBMap().data, this->rgbImage->imageData, this->rgbImage->width * this->rgbImage->height * 3 * sizeof(char));
+	memcpy((void*)image->getDepthMap().data, this->depthData, this->rgbImage->width * this->rgbImage->height * sizeof(unsigned short));
+	image->updateDeviceData();
+	
 }
-
-boost::shared_ptr<openni_wrapper::Image> FaceDetection::convertIplImageToOpenNIWrapper() {
-	
-	boost::shared_ptr<xn::ImageMetaData> imageMetaData (new xn::ImageMetaData);
-	imageMetaData->AllocateData(this->rgbImage->width, this->rgbImage->height, XN_PIXEL_FORMAT_RGB24);
-	XnRGB24Pixel* imageMap = imageMetaData->WritableRGB24Data();
-	for(int pixel = 0; pixel < this->rgbImage->width * this->rgbImage->height; pixel++) {
-		imageMap[pixel].nRed = static_cast<XnUInt8>(this->rgbImage->imageData[pixel * 3 + 0]);
-		imageMap[pixel].nGreen = static_cast<XnUInt8>(this->rgbImage->imageData[pixel * 3 + 1]);
-		imageMap[pixel].nBlue = static_cast<XnUInt8>(this->rgbImage->imageData[pixel * 3 + 2]);
-	}
-	boost::shared_ptr<openni_wrapper::Image> image (new openni_wrapper::ImageRGB24(imageMetaData));
-	return image;
-
-}
-
-boost::shared_ptr<openni_wrapper::DepthImage> FaceDetection::convertUnsignedShortToOpenNIWrapper() {
-	
-	boost::shared_ptr<xn::DepthMetaData> depthMetaData (new xn::DepthMetaData);
-	depthMetaData->AllocateData(this->rgbImage->width, this->rgbImage->height);
-	XnDepthPixel* depthMap = depthMetaData->WritableData();
-	for(int pixel = 0; pixel < this->rgbImage->width * this->rgbImage->height; pixel++) {
-		depthMap[pixel] = static_cast<XnDepthPixel>(depthData[pixel]);
-	}
-	boost::shared_ptr<openni_wrapper::DepthImage> depthImage (new openni_wrapper::DepthImage(depthMetaData, 0.075f, 525.f, 0, 0));
-	return depthImage;
-}
-	

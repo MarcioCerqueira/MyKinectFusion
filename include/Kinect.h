@@ -13,6 +13,7 @@ public:
 	boost::shared_ptr<openni_wrapper::DepthImage>& getDepthImage() { return depthImage; }
 	int getImageWidth() { return rgbImage->getWidth(); }
 	int getImageHeight() { return rgbImage->getHeight(); }
+	float getFocalLength() { return f; }
 private:
 	void imageCallBack (const boost::shared_ptr<openni_wrapper::Image>& rgbImage, const boost::shared_ptr<openni_wrapper::DepthImage>& depthImage, float constant);
 	
@@ -21,6 +22,7 @@ private:
 	boost::mutex data_ready_mutex;
 	boost::shared_ptr<openni_wrapper::Image> rgbImage;
 	boost::shared_ptr<openni_wrapper::DepthImage> depthImage;
+	float f;
 };
 
 #endif

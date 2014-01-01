@@ -17,17 +17,10 @@ Reconstruction::Reconstruction(Eigen::Vector3i& volumeSize) {
 
 	headPoseEstimationOk = false;
 
-	image_ = new Image(640, 480);
 	tsdfVolume_ = new TsdfVolume(volumeSize);
 
 	currentPointCloud_ = new MyPointCloud(640, 480);
 	globalPreviousPointCloud_ = new MyPointCloud(640, 480);
-	auxPointCloud_ = new MyPointCloud(640, 480);
-
-	float f = 525.f;
-	
-	image_->setDepthIntrinsics(f, f);
-	image_->setTrancationDistance(tsdfVolume_->getVolumeSize());
 
 	init_Rcam_ = Eigen::Matrix3f::Identity ();// * AngleAxisf(-30.f/180*3.1415926, Vector3f::UnitX());
 	//init_tcam_ = Eigen::Vector3f::Zero ();
@@ -82,82 +75,46 @@ void Reconstruction::reset() {
 
 }
 
-void Reconstruction::run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage) {
+void Reconstruction::run(Image *image) {
 
-	depthMap = image_->getDepthMap();
-	depthDevice = image_->getDepthDevice();
-	rgbDevice = image_->getRgbDevice();
-
-	depthMap.cols = depthImage->getWidth();
-	depthMap.rows = depthImage->getHeight();
-	depthMap.step = depthMap.cols * depthMap.elemSize();
-	
-	sourceDepthData.resize(depthMap.cols * depthMap.rows);
-	depthImage->fillDepthImageRaw(depthMap.cols, depthMap.rows, &sourceDepthData[0]);
-	depthMap.data = &sourceDepthData[0];
-
-	rgbMap.cols = rgbImage->getWidth();
-	rgbMap.rows = rgbImage->getHeight();
-	rgbMap.step = rgbMap.cols * rgbMap.elemSize();
-
-	sourceRgbData.resize(rgbMap.cols * rgbMap.rows);
-	rgbImage->fillRGB(rgbMap.cols, rgbMap.rows, (unsigned char*)&sourceRgbData[0]);
-	rgbMap.data = &sourceRgbData[0];
-	
-	rgbDevice.upload(rgbMap.data, rgbMap.step, rgbMap.rows, rgbMap.cols);
-	depthDevice.upload(depthMap.data, depthMap.step, depthMap.rows, depthMap.cols);
-	
-	//ScopeTimeT time ("total-frame");
-	//{
-		image_->setDepthDevice(depthDevice);
-		image_->setRgbDevice(rgbDevice);
-		image_->applyBilateralFilter();
-		image_->applyDepthTruncation(threshold_);
-		image_->applyPyrDown();
-		image_->convertToPointCloud(currentPointCloud_);
-		image_->applyDepthTruncation(depthDevice, threshold_);
-		pcl::device::sync ();
-
-		if(globalTime == 0) {
+	if(globalTime == 0) {
 		
-			tsdfVolume_->integrateVolume(rmats_, tvecs_, depthDevice, image_->getIntrinsics(), image_->getTrancationDistance(), image_->getDepthRawScaled(), globalTime);
-			currentPointCloud_->transformPointCloud(rmats_[0], tvecs_[0], globalPreviousPointCloud_->getVertexMaps(), globalPreviousPointCloud_->getNormalMaps());
+		tsdfVolume_->integrateVolume(rmats_, tvecs_, image->getDepthDevice(), intrinsics, trancationDistance, image->getDepthRawScaled(), globalTime);
+		currentPointCloud_->transformPointCloud(rmats_[0], tvecs_[0], globalPreviousPointCloud_->getVertexMaps(), globalPreviousPointCloud_->getNormalMaps());
 				
-		} else {
+	} else {
 			
-			if(!stopTracking_) {
+		if(!stopTracking_) {
 
-				hasImage_ = currentPointCloud_->alignPointClouds(rmats_, tvecs_, globalPreviousPointCloud_, image_->getIntrinsics(), globalTime);
+			hasImage_ = currentPointCloud_->alignPointClouds(rmats_, tvecs_, globalPreviousPointCloud_, intrinsics, globalTime);
 
 #if (USE_HEAD_POSE_ESTIMATION)
-				if(!hasImage_ && !isOnlyTrackingOn_ && headPoseEstimationOk) 
-					((HeadPoseEstimationMediator*)headPoseEstimationMediator)->runHeadPoseEstimationPlusICP(this);
+			if(!hasImage_ && !isOnlyTrackingOn_ && headPoseEstimationOk) 
+				((HeadPoseEstimationMediator*)headPoseEstimationMediator)->runHeadPoseEstimationPlusICP((unsigned short*)image->getDepthMap().data, this);
 #endif
 
-				if(!hasImage_)
-					reset();
-				else {
+			if(!hasImage_)
+				reset();
+			else {
 				
-					if(!isOnlyTrackingOn_)
-						tsdfVolume_->integrateVolume(rmats_, tvecs_, depthDevice, image_->getIntrinsics(), image_->getTrancationDistance(), image_->getDepthRawScaled(), globalTime);
+				if(!isOnlyTrackingOn_)
+					tsdfVolume_->integrateVolume(rmats_, tvecs_, image->getDepthDevice(), intrinsics, trancationDistance, image->getDepthRawScaled(), globalTime);
 						
-					tsdfVolume_->raycast(rmats_, tvecs_, image_->getIntrinsics(), image_->getTrancationDistance(), globalPreviousPointCloud_, globalTime);
-					pcl::device::sync ();
+				tsdfVolume_->raycast(rmats_, tvecs_, intrinsics, trancationDistance, globalPreviousPointCloud_, globalTime);
+				pcl::device::sync ();
 						
-				}
+			}
 
-			} else
-				hasIncrement_ = false;
+		} else
+			hasIncrement_ = false;
 
-		}
+	}
 
-	//}
-		
 	if(hasIncrement_) {
 
 		globalTime++;
 		for(int pixel = 0; pixel < 640 * 480; pixel++)
-			previousDepthData[pixel] = depthMap.data[pixel];
+			previousDepthData[pixel] = image->getDepthMap().data[pixel];
 		
 	} else
 		hasIncrement_ = true;
@@ -172,7 +129,7 @@ void Reconstruction::enableOnlyTracking(bool stopFaceDetection)
 bool Reconstruction::reRunICP() 
 {
 
-	hasImage_ = currentPointCloud_->alignPointClouds(rmats_, tvecs_, globalPreviousPointCloud_, image_->getIntrinsics(), globalTime);
+	hasImage_ = currentPointCloud_->alignPointClouds(rmats_, tvecs_, globalPreviousPointCloud_, intrinsics, globalTime);
 	if(hasImage_)
 		std::cout << "Error: " << currentPointCloud_->computeFinalError() << std::endl;
 	else
@@ -183,78 +140,29 @@ bool Reconstruction::reRunICP()
 
 void Reconstruction::reRunRaycasting() 
 {	
-	tsdfVolume_->raycast(rmats_, tvecs_, image_->getIntrinsics(), image_->getTrancationDistance(), globalPreviousPointCloud_, globalTime);
+	tsdfVolume_->raycast(rmats_, tvecs_, intrinsics, trancationDistance, globalPreviousPointCloud_, globalTime);
 }
 
 void Reconstruction::transformGlobalPreviousPointCloud(Eigen::Matrix3f& Rinc, Eigen::Vector3f& tvec, Eigen::Vector3f& centerOfMass)
 {
 
-	globalPreviousPointCloud_->transformPointCloud(Rinc, tvec, globalPreviousPointCloud_->getVertexMaps(), globalPreviousPointCloud_->getNormalMaps(), init_tcam_, 
-		centerOfMass);
-
-}
- 
-unsigned char* Reconstruction::getRaycastImage() {
-	
-	int cols;
-	Eigen::Vector3f cpuVolumeSize = tsdfVolume_->getVolumeSize();
-	image_->getRaycastImage(viewDevice_, cpuVolumeSize, globalPreviousPointCloud_);
-	viewDevice_.download (view_host_, cols);
-
-	return (unsigned char*)view_host_.data();
+	globalPreviousPointCloud_->transformPointCloud(Rinc, tvec, globalPreviousPointCloud_->getVertexMaps(), 
+		globalPreviousPointCloud_->getNormalMaps(), init_tcam_, centerOfMass);
 
 }
 
-void Reconstruction::getPointCloud(float *pointCloud, bool globalCoordinates) {
-	
-	int c;
-	
-	if(globalCoordinates)
-		globalPreviousPointCloud_->getLastFrameCloud(cloudDevice_);
-	else
-		currentPointCloud_->getLastFrameCloud(cloudDevice_);
-
-	cloudDevice_.download (cloudHost_, c);
-	
-	for(int point = 0; point < (640 * 480); point++)
-	{
-		pointCloud[point * 3 + 0] = cloudHost_[point].x;
-		pointCloud[point * 3 + 1] = cloudHost_[point].y;
-		pointCloud[point * 3 + 2] = cloudHost_[point].z;
-	}
-				
+/*
+void Reconstruction::transformGlobalPreviousToCurrentPointCloud()
+{
+	Matrix3frm invCurrRot = this->getCurrentRotation().inverse();
+	globalPreviousPointCloud_->transformPointCloud(invCurrRot, this->getCurrentTranslation(), currentPointCloud_->getVertexMaps(), 
+		currentPointCloud_->getNormalMaps(), true);
 }
+*/
 
-void Reconstruction::getNormalVector(float *normalVector, bool globalCoordinates) {
-	
-	int c;
-	int inverse;
-
-	if(globalCoordinates) {
-		globalPreviousPointCloud_->getLastFrameNormals(normalsDevice_);
-		inverse = 1;
-	} else {
-		currentPointCloud_->getLastFrameNormals(normalsDevice_);
-		inverse = -1;
-	}
-
-	normalsDevice_.download (normalsHost_, c);
-	
-	for(int point = 0; point < (640 * 480); point++)
-	{
-		normalVector[point * 3 + 0] = inverse * normalsHost_[point].x;
-		normalVector[point * 3 + 1] = inverse * normalsHost_[point].y;
-		if((inverse * normalsHost_[point].z) > 0)
-			normalVector[point * 3 + 2] = normalsHost_[point].z;
-		else
-			normalVector[point * 3 + 2] = inverse * normalsHost_[point].z;
-	}
-	
-}
 
 Reconstruction::~Reconstruction() {
 
-	delete image_;
 	delete tsdfVolume_;
 	delete currentPointCloud_;
 	delete globalPreviousPointCloud_;

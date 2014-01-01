@@ -251,6 +251,29 @@ void MyGLCloudViewer::drawOBJ(float *translationVector, float *rotationAngles, E
 	glFrontFace(GL_CCW);
 }
 
+void MyGLCloudViewer::drawQuad(GLuint *VBO)
+{
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[0]); 
+	glEnableClientState(GL_VERTEX_ARRAY); 		
+	glVertexPointer(3, GL_FLOAT, 0, 0); 
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[1]); 		
+	glEnableClientState(GL_COLOR_ARRAY); 		
+	glColorPointer(3, GL_FLOAT, 0, 0);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO[2]); 
+	
+	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+	
+	glDisableClientState(GL_VERTEX_ARRAY); 
+	glDisableClientState(GL_COLOR_ARRAY); 
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0); 
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); 
+
+}
+
 void MyGLCloudViewer::loadARModel(char *fileName)
 {
 
@@ -327,6 +350,62 @@ void MyGLCloudViewer::loadVBOs(GLuint *VBOs, int *indices, float *pointCloud, fl
 		
 	glDisableClientState(GL_VERTEX_ARRAY); 
 	glDisableClientState(GL_NORMAL_ARRAY);
+}
+
+void MyGLCloudViewer::loadVBOQuad(GLuint *VBO, float x, float y, float z)
+{
+
+	float pointCloud[24];
+	float color[24];
+	int indices[36];
+
+	pointCloud[0] = -x;	pointCloud[1] = y;	pointCloud[2] = z;
+	pointCloud[3] = -x;	pointCloud[4] = -y;	pointCloud[5] = z;
+	pointCloud[6] = x;	pointCloud[7] = -y;	pointCloud[8] = z;
+	pointCloud[9] = x;	pointCloud[10] = y;	pointCloud[11] = z;
+
+	pointCloud[12] = -x;	pointCloud[13] = y;	pointCloud[14] = -z;
+	pointCloud[15] = -x;	pointCloud[16] = -y;	pointCloud[17] = -z;
+	pointCloud[18] = x;	pointCloud[19] = -y;	pointCloud[20] = -z;
+	pointCloud[21] = x;	pointCloud[22] = y;	pointCloud[23] = -z;
+
+	color[0] = 0;	color[1] = 1;	color[2] = 1;
+	color[3] = 0;	color[4] = 0;	color[5] = 1;
+	color[6] = 1;	color[7] = 0;	color[8] = 1;
+	color[9] = 1;	color[10] = 1;	color[11] = 1;
+
+	color[12] = 0;	color[13] = 1;	color[14] = 0;
+	color[15] = 0;	color[16] = 0;	color[17] = 0;
+	color[18] = 1;	color[19] = 0;	color[20] = 0;
+	color[21] = 1;	color[22] = 1;	color[23] = 0;
+	
+	indices[0] = 0;	indices[1] = 1;	indices[2] = 2;
+	indices[3] = 0;	indices[4] = 2;	indices[5] = 3;
+	indices[6] = 4;	indices[7] = 5;	indices[8] = 1;
+	indices[9] = 4;	indices[10] = 1;	indices[11] = 0;
+	indices[12] = 7;	indices[13] = 6;	indices[14] = 5;
+	indices[15] = 7;	indices[16] = 5;	indices[17] = 4;
+	indices[18] = 3;	indices[19] = 2;	indices[20] = 6;
+	indices[21] = 3;	indices[22] = 6;	indices[23] = 7;
+	indices[24] = 4;	indices[25] = 0;	indices[26] = 3;
+	indices[27] = 4;	indices[28] = 3;	indices[29] = 7;
+	indices[30] = 6;	indices[31] = 2;	indices[32] = 1;
+	indices[33] = 6;	indices[34] = 1;	indices[35] = 5;
+	
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[0]);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glBufferData(GL_ARRAY_BUFFER, 24 * sizeof(float), pointCloud, GL_DYNAMIC_DRAW);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO[1]);
+	glEnableClientState(GL_COLOR_ARRAY);
+	glBufferData(GL_ARRAY_BUFFER, 24 * sizeof(float), color, GL_DYNAMIC_DRAW);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VBO[2]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, 36 * sizeof(unsigned int), indices, GL_DYNAMIC_DRAW);
+
+	glDisableClientState(GL_VERTEX_ARRAY); 
+	glDisableClientState(GL_COLOR_ARRAY); 
+
 }
 
 void MyGLCloudViewer::setEyePosition(int xEye, int yEye, int zEye) 

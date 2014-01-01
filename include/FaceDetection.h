@@ -16,20 +16,19 @@
 #include <limits.h>
 #include <time.h>
 #include <ctype.h>
+#include "Image.h"
 
 class FaceDetection {
 public:
 	FaceDetection(char *cascadeFileName);
 	~FaceDetection();
-	bool run(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage);
-	void segmentFace(boost::shared_ptr<openni_wrapper::Image>& rgbImage, boost::shared_ptr<openni_wrapper::DepthImage>& depthImage);
+	bool run(Image *image);
+	void segmentFace(Image *image);
 private:
 	//Given a cascade, it computes pt1 and pt2 and segments the face from the depth data
 	bool detectFace(IplImage* img, unsigned short *depthData);	
 	//Given pt1 and pt2, it segments the face from the depth data
 	void segmentFace(IplImage *img, unsigned short *depthData);
-	boost::shared_ptr<openni_wrapper::Image> convertIplImageToOpenNIWrapper();
-	boost::shared_ptr<openni_wrapper::DepthImage> convertUnsignedShortToOpenNIWrapper();
 	char cascade_name[100];
 	CvPoint pt1, pt2;
 	IplImage *rgbImage;

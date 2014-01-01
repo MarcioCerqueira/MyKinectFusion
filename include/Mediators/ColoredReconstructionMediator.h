@@ -11,7 +11,7 @@ class ColoredReconstructionMediator
 public:
 	ColoredReconstructionMediator(Eigen::Vector3f& volumeSize);
 	void savePointCloud(TsdfVolume* tsdfVolume);
-	void updateColorVolume(Reconstruction *reconstruction);
+	void updateColorVolume(KinfuTracker::View rgbDevice, Reconstruction *reconstruction);
 private:
 	ColorVolume* colorVolume;
 	

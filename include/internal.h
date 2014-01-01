@@ -55,7 +55,7 @@ namespace pcl
     //Tsdf fixed point divisor (if old format is enabled)
     const int DIVISOR = 32767;     // SHRT_MAX;
 
-    enum { VOLUME_X = 512, VOLUME_Y = 512, VOLUME_Z = 512};
+    enum { VOLUME_X = 256, VOLUME_Y = 256, VOLUME_Z = 256};
 
     /** \brief Camera intrinsics structure
       */ 
@@ -126,7 +126,14 @@ namespace pcl
     void 
     computeNormalsEigen (const MapArr& vmap, MapArr& nmap);
 
-    /** \brief Performs affine tranform of vertex and normal maps
+	/** \brief Computes curvature map using an average of normals
+	  * \param[in] nmap normal map
+	  * \param[out] curvatureMap curvature map
+	*/
+	void
+	computeCurvatureMap(const MapArr& nmap, float* curvatureMap);
+    
+	/** \brief Performs affine tranform of vertex and normal maps
       * \param[in] vmap_src source vertex map
       * \param[in] nmap_src source vertex map
       * \param[in] Rmat Rotation mat
@@ -141,6 +148,8 @@ namespace pcl
     tranformMaps (const MapArr& vmap_src, const MapArr& nmap_src, const Mat33& Rmat, const float3& tvec, MapArr& vmap_dst, MapArr& nmap_dst, 
 		const float3& newOrigin, const float3& objectCentroid);
 
+	void 
+	transformInverseOrganizedMapToDepthMap(const MapArr& vmap, DepthMap& depth, const Mat33& Rmat, const float3& tvec);
 	/** \brief Performs depth truncation
       * \param[out] depth depth map to truncation
       * \param[in] max_distance truncation threshold, values that are higher than the threshold are reset to zero (means not measurement)

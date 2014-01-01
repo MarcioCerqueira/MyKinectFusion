@@ -12,15 +12,14 @@ uniform int MIP;
 uniform int windowWidth;
 uniform int windowHeight;
 
-
 vec4 efficientTriCubicInterpolation(sampler3D texture, vec3 texCoord)
 {
 
 	vec3 texelSize;
-	vec3 voxelLength = textureSize(texture, 0);
-	texelSize = 1 / voxelLength;
+	ivec3 voxelLength = textureSize(texture, 0);
+	texelSize = 1.0 / vec3(voxelLength);
 
-	vec3 coord_grid = texCoord * voxelLength - 0.5;
+	vec3 coord_grid = texCoord * vec3(voxelLength) - 0.5;
 	vec3 index = floor(coord_grid);
 	vec3 fraction = coord_grid - index;
 
@@ -61,8 +60,8 @@ void main (void)
 
 	vec4 value = vec4(0, 0, 0, 0);
 	float scalar;
-	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
-	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/windowWidth, gl_FragCoord.y/windowHeight));
+	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
+	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
 	if(rayStart == rayEnd)
 		discard;
 	//Initialize accumulated color and opacity
@@ -73,24 +72,24 @@ void main (void)
 	float len = length(direction); // the length from front to back is calculated and used to terminate the ray
     direction = normalize(direction);
 	if(stochasticJithering == 1)
-		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256).x/64;
-	float dirLength = normalize(direction);
+		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256.0).x/64.0;
+	float dirLength = length(direction);
 	//Loop for ray traversal
-	//float maxStepSize = 0.04f; //2.f/50.f
-	float maxStepSize = 4 * stepSize;
-	float accLength = 0;
+	float maxStepSize = 0.04; //2.f/50.f
+	//float maxStepSize = 4.0 * stepSize;
+	float accLength = 0.0;
 	vec4 maxOpacity;
 	
 	for(int i = 0; i < 200; i++) //Some large number
 	{
 		
 		maxOpacity = texture3D(minMaxOctree, position);
-		if(maxOpacity.g > 0) {
+		if(maxOpacity.g > 0.0) {
 		
 			//Data access to scalar value in 3D volume texture
 			if(triCubicInterpolation == 1) {
 				value = efficientTriCubicInterpolation(volume, position);
-				vec3 s = -stepSize * 0.5;
+				vec3 s = vec3(-stepSize * 0.5, -stepSize * 0.5, -stepSize * 0.5);
 				position = position + direction * s;
 				value = efficientTriCubicInterpolation(volume, position);
 				if(value.a > 0.1) s *= 0.5;
@@ -99,7 +98,7 @@ void main (void)
 				value = efficientTriCubicInterpolation(volume, position);
 			} else {
 				value = texture3D(volume, position);
-				vec3 s = -stepSize * 0.5;
+				vec3 s = vec3(-stepSize * 0.5, -stepSize * 0.5, -stepSize * 0.5);
 				position = position + direction * s;
 				value = texture3D(volume, position);
 				if(value.a > 0.1) s *= 0.5;
@@ -110,7 +109,7 @@ void main (void)
 
 			if(MIP == 0) {
 				if(value.a > 0.1)
-					dst = (1 - dst.a) * value + dst;
+					dst = (1.0 - dst.a) * value + dst;
 			} else
 				dst = max(dst, value);
 

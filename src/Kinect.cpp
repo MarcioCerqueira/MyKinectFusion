@@ -8,6 +8,7 @@ Kinect::Kinect()
 		= boost::bind (&Kinect::imageCallBack, this, _1, _2, _3);
 	capture->registerCallback(callbackFunction);
 	capture->start();
+	f = 525.f;
 
 }
 

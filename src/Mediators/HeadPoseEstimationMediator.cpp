@@ -10,9 +10,9 @@ HeadPoseEstimationMediator::~HeadPoseEstimationMediator() {
 	delete headPoseEstimator;
 }
 
-void HeadPoseEstimationMediator::stopTracking(bool stop, Reconstruction *reconstruction) {
+void HeadPoseEstimationMediator::stopTracking(bool stop, unsigned short *currentDepthMap, Reconstruction *reconstruction) {
 	
-	headPoseEstimator->run(reconstruction->getCurrentDepthMap());
+	headPoseEstimator->run(currentDepthMap);
 
 	if(headPoseEstimator->hadSuccess()) {
 		
@@ -57,14 +57,14 @@ void HeadPoseEstimationMediator::stopTracking(bool stop, Reconstruction *reconst
 
 }
 
-void HeadPoseEstimationMediator::runHeadPoseEstimationPlusICP(Reconstruction *reconstruction) {
+void HeadPoseEstimationMediator::runHeadPoseEstimationPlusICP(unsigned short *currentDepthMap, Reconstruction *reconstruction) {
 
 	std::cout << "Running ICP + HPE" << std::endl;
 	
 	headPoseEstimator->run(reconstruction->getPreviousDepthMap());
 	previousRotationMatrixEstimated = headPoseEstimator->getRotationMatrixEstimated();
 	previousHeadCenter = headPoseEstimator->getHeadCenter() + reconstruction->getInitialTranslation();
-	headPoseEstimator->run(reconstruction->getCurrentDepthMap());
+	headPoseEstimator->run(currentDepthMap);
 
 	if(headPoseEstimator->hadSuccess()) {
 		
