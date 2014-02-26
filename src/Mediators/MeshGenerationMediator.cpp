@@ -25,3 +25,9 @@ void MeshGenerationMediator::saveMesh(TsdfVolume *tsdfVolume) {
 	delete mesh;
 
 }
+
+pcl::PointCloud<pcl::PointXYZ> MeshGenerationMediator::computeMesh(MedicalVolume *medicalVolume, float minValue, float samplingFactor) {
+	
+	return marchingCubes->run(medicalVolume->getOrganizedData(), minValue, samplingFactor);
+
+}

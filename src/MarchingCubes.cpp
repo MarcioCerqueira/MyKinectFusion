@@ -46,6 +46,158 @@ DeviceArray<pcl::PointXYZ> MarchingCubes::run(TsdfVolume *tsdfVolume, DeviceArra
 
 }
 
+pcl::PointCloud<pcl::PointXYZ> MarchingCubes::run(std::vector< std::vector< std::vector<float> > > grid, float minValue, float samplingFactor) {
+
+	pcl::PointCloud<pcl::PointXYZ> triangles;
+	float size[3];
+	int numTriangles = 0;
+	float vertices[8][3];
+	float intVertices[12][3];
+	float values[8];
+	float gridCoo[3];
+
+	size[0] = grid.size();
+	size[1] = grid[0].size();
+	size[2] = grid[0][0].size();
+	
+	triangles.points.resize(size[0] * size[1] * size[2]);
+
+	gridCoo[0] = 0;
+	gridCoo[1] = 0;
+	gridCoo[2] = 0;
+
+	for(int x = 0; x < size[0] - 1; x += samplingFactor) {
+		for(int y = 0; y < size[1] - 1; y += samplingFactor) {
+			for(int z = 0; z < size[2] - 1; z += samplingFactor) {
+				
+				//initialize vertices
+				vertices[0][0] = x;	vertices[0][1] = y;	vertices[0][2] = z;
+				vertices[1][0] = x+1;	vertices[1][1] = y;	vertices[1][2] = z;
+				vertices[2][0] = x+1;	vertices[2][1] = y+1;	vertices[2][2] = z;
+				vertices[3][0] = x;	vertices[3][1] = y+1;	vertices[3][2] = z;
+				vertices[4][0] = x;	vertices[4][1] = y;	vertices[4][2] = z+1;
+				vertices[5][0] = x+1;	vertices[5][1] = y;	vertices[5][2] = z+1;
+				vertices[6][0] = x+1;	vertices[6][1] = y+1;	vertices[6][2] = z+1;
+				vertices[7][0] = x;	vertices[7][1] = y+1;	vertices[7][2] = z+1;
+	
+				values[0] = grid[x][y][z];
+				values[1] = grid[x+1][y][z];
+				values[2] = grid[x+1][y+1][z];
+				values[3] = grid[x][y+1][z];
+				values[4] = grid[x][y][z+1];
+				values[5] = grid[x+1][y][z+1];
+				values[6] = grid[x+1][y+1][z+1];
+				values[7] = grid[x][y+1][z+1];
+
+				//get the index
+				int cubeIndex = 0;
+				for(int n = 0; n < 8; n++)
+					if(values[n] <= minValue) cubeIndex |= (1 << n);
+
+				//check if its completely inside or outside
+				if(!edgeTable[cubeIndex]) continue;
+
+				//get linearly interpolated vertices on edges and save into the array
+				if(edgeTable[cubeIndex] & 1) lerp(vertices[0], values[0], vertices[1], values[1], minValue, intVertices[0]);
+				if(edgeTable[cubeIndex] & 2) lerp(vertices[1], values[1], vertices[2], values[2], minValue, intVertices[1]);
+				if(edgeTable[cubeIndex] & 4) lerp(vertices[2], values[2], vertices[3], values[3], minValue, intVertices[2]);
+				if(edgeTable[cubeIndex] & 8) lerp(vertices[3], values[3], vertices[0], values[0], minValue, intVertices[3]);
+				if(edgeTable[cubeIndex] & 16) lerp(vertices[4], values[4], vertices[5], values[5], minValue, intVertices[4]);
+				if(edgeTable[cubeIndex] & 32) lerp(vertices[5], values[5], vertices[6], values[6], minValue, intVertices[5]);
+				if(edgeTable[cubeIndex] & 64) lerp(vertices[6], values[6], vertices[7], values[7], minValue, intVertices[6]);
+				if(edgeTable[cubeIndex] & 128)	lerp(vertices[7], values[7], vertices[4], values[4], minValue, intVertices[7]);
+				if(edgeTable[cubeIndex] & 256)	lerp(vertices[0], values[0], vertices[4], values[4], minValue, intVertices[8]);
+				if(edgeTable[cubeIndex] & 512)	lerp(vertices[1], values[1], vertices[5], values[5], minValue, intVertices[9]);
+				if(edgeTable[cubeIndex] & 1024) lerp(vertices[2], values[2], vertices[6], values[6], minValue, intVertices[10]);
+				if(edgeTable[cubeIndex] & 2048) lerp(vertices[3], values[3], vertices[7], values[7], minValue, intVertices[11]);
+
+				//now build the triangles using triTable
+				for(int n=0; triTable[cubeIndex][n] != -1; n+=3) {
+					/*
+					triangles.points[numTriangles * 3 + 0].x = intVertices[triTable[cubeIndex][n+2]][0];
+					triangles.points[numTriangles * 3 + 0].y = intVertices[triTable[cubeIndex][n+2]][1];
+					triangles.points[numTriangles * 3 + 0].z = intVertices[triTable[cubeIndex][n+2]][2];
+					triangles.points[numTriangles * 3 + 1].x = intVertices[triTable[cubeIndex][n+1]][0];
+					triangles.points[numTriangles * 3 + 1].y = intVertices[triTable[cubeIndex][n+1]][1];
+					triangles.points[numTriangles * 3 + 1].z = intVertices[triTable[cubeIndex][n+1]][2];
+					triangles.points[numTriangles * 3 + 2].x = intVertices[triTable[cubeIndex][n]][0];
+					triangles.points[numTriangles * 3 + 2].y = intVertices[triTable[cubeIndex][n]][1];
+					triangles.points[numTriangles * 3 + 2].z = intVertices[triTable[cubeIndex][n]][2];
+					*/
+					triangles.points[numTriangles].x = intVertices[triTable[cubeIndex][n+2]][0];
+					triangles.points[numTriangles].y = intVertices[triTable[cubeIndex][n+2]][1];
+					triangles.points[numTriangles].z = intVertices[triTable[cubeIndex][n+2]][2];
+					triangles.points[numTriangles].x += intVertices[triTable[cubeIndex][n+1]][0];
+					triangles.points[numTriangles].y += intVertices[triTable[cubeIndex][n+1]][1];
+					triangles.points[numTriangles].z += intVertices[triTable[cubeIndex][n+1]][2];
+					triangles.points[numTriangles].x += intVertices[triTable[cubeIndex][n]][0];
+					triangles.points[numTriangles].y += intVertices[triTable[cubeIndex][n]][1];
+					triangles.points[numTriangles].z += intVertices[triTable[cubeIndex][n]][2];
+					triangles.points[numTriangles].x /= 3;
+					triangles.points[numTriangles].y /= 3;
+					triangles.points[numTriangles].z /= 3;
+					triangles.points[numTriangles].x = (triangles.points[numTriangles].x - (size[0]/2))/(size[0]/2);
+					triangles.points[numTriangles].y = (triangles.points[numTriangles].y - (size[1]/2))/(size[1]/2);
+					triangles.points[numTriangles].z = (triangles.points[numTriangles].z - (size[2]/2))/(size[2]/2);
+					numTriangles++;
+				}
+
+			}
+		}
+	}
+	
+	triangles.points.resize(numTriangles);
+	return triangles;
+	/*
+	pcl::PointCloud<pcl::PointXYZ> trianglesCompacted;
+	trianglesCompacted.points.resize(numTriangles * 3);
+
+	for(int triangle = 0; triangle < numTriangles * 3; triangle++)
+		trianglesCompacted.points[triangle] = triangles.points[triangle];
+
+	//compact the mesh
+
+	int numPoints = 0;
+	triangles.points[0] = trianglesCompacted.points[0];
+	numPoints++;
+	for(int t = 1; t < numTriangles * 3; t++) {
+		bool equalVertex = false;
+		for(int p = 0; p < numPoints; p++) {
+			if(trianglesCompacted.points[t].x == triangles.points[p].x && trianglesCompacted.points[t].y == triangles.points[p].y && 
+				trianglesCompacted.points[t].z == triangles.points[p].z) {
+				p = numPoints + 1;
+				equalVertex = true;
+			}
+		}
+		if(!equalVertex) {
+			triangles.points[numPoints] = trianglesCompacted.points[t];
+			numPoints++;
+		}
+	}
+	
+	trianglesCompacted.points.clear();
+	trianglesCompacted.points.resize(numPoints);
+
+	for(int point = 0; point < numPoints; point++)
+		trianglesCompacted.points[point] = triangles.points[point];
+
+	return trianglesCompacted;
+	*/
+}
+
+void MarchingCubes::lerp(float* vertex1, float value1, float *vertex2, float value2, float minValue, float* result) {
+
+	if(value1 != value2) {
+		result[0] = vertex1[0] + (vertex2[0] - vertex1[0])/(value2 - value1) * (minValue - value1);
+		result[1] = vertex1[1] + (vertex2[1] - vertex1[1])/(value2 - value1) * (minValue - value1);
+		result[2] = vertex1[2] + (vertex2[2] - vertex1[2])/(value2 - value1) * (minValue - value1);
+	} else {
+		result[0] = vertex1[0];
+		result[1] = vertex1[1];
+		result[2] = vertex1[2];
+	}
+
+}
 // edge table maps 8-bit flag representing which cube vertices are inside
 // the isosurface to 12-bit number indicating which edges are intersected
 const int edgeTable[256] = 

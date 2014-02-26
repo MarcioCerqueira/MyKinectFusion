@@ -13,12 +13,12 @@ public:
 	//initialGlobalTranslation = init_tcam_
 	void stopTracking(bool stop, unsigned short *currentDepthMap, Reconstruction *reconstruction);
 	void runHeadPoseEstimationPlusICP(unsigned short *currentDepthMap, Reconstruction *reconstruction);
+	HeadPoseEstimator* getHeadPoseEstimator() { return headPoseEstimator; }
 private:
 	HeadPoseEstimator *headPoseEstimator;
 	char *HPEConfigFileName;
 	Eigen::Matrix3f previousRotationMatrixEstimated;
 	Eigen::Vector3f previousHeadCenter;
-	
 };
 
 #endif

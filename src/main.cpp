@@ -11,6 +11,7 @@
 #include "Viewers/MyGLCloudViewer.h"
 #include "Viewers/shader.h"
 #include "Viewers/AROcclusionParams.h"
+#include "Viewers/ModelViewParams.h"
 #include "Mediators/MeshGenerationMediator.h"
 #include "Mediators/ColoredReconstructionMediator.h"
 #include "Mediators/HeadPoseEstimationMediator.h"
@@ -46,6 +47,7 @@ ColoredReconstructionMediator *coloredReconstructionMediator;
 HeadPoseEstimationMediator *headPoseEstimationMediator;
 FaceDetection *faceDetector;
 AROcclusionParams occlusionParams;
+ModelViewParams modelViewParams;
 
 //VBOs
 GLuint texVBO[20]; 
@@ -91,7 +93,7 @@ float focusPoint[2] = {0, 0};
 float focusRadius = 50;
 
 //AR (General attributes)
-int vel = 15;
+int vel = 5;
 float scale[3];
 float translationVector[3];
 float rotationAngles[3];
@@ -153,6 +155,7 @@ int workAround = 0;
 int frameCount = 0;
 float fps = 0;
 int currentTime = 0, previousTime = 0;
+std::vector<unsigned short> sourceDepthData;
 
 void calculateFPS() {
 
@@ -235,12 +238,12 @@ void setScale(int index, bool up)
 
 void positionVirtualObject(int x, int y)
 {
-	//We compute the translationVector necessary to move the virtual object
+	//We compute the translationVector required to move the virtual object
 	float virtualCentroid[3];
 	if(ARPolygonal)
 		myGLCloudViewer->computeARModelCentroid(virtualCentroid);
 	if(ARVolumetric) {
-		virtualCentroid[0] = 0.5f; virtualCentroid[1] = 0.5f; virtualCentroid[2] = 0.5f;
+		virtualCentroid[0] = 0; virtualCentroid[1] = 0; virtualCentroid[2] = 0;
 	}
 
 	//We need to update the centroid
@@ -248,30 +251,70 @@ void positionVirtualObject(int x, int y)
 	virtualCentroid[1] += translationVector[1];
 	virtualCentroid[2] += translationVector[2];
 
-	y = windowHeight/2 - (y - windowHeight/2);
-	y = windowHeight/2 - y;
+	if(ARPolygonal) {
 	
-	int pixel = y * windowWidth/2 + x;
+		y = windowHeight/2 - (y - windowHeight/2);
+		y = windowHeight/2 - y;
 	
-	float cx = imageCollection->getIntrinsics().cx;
-	float cy = imageCollection->getIntrinsics().cy;
-	float fx = imageCollection->getIntrinsics().fx;
-	float fy = imageCollection->getIntrinsics().fy;
-	//If the chosen point is visible
-	if(pixel >= 0 && pixel < (640 * 480)) {
-		if(imageCollection->getDepthMap()[pixel] != 0) {
-			
-			float xp = (float)(x - cx) * imageCollection->getDepthMap()[pixel]/fx;
-			float yp = (float)(y - cy) * imageCollection->getDepthMap()[pixel]/fy;
-			float zp = imageCollection->getDepthMap()[pixel];
-			
-			translationVector[0] += xp - virtualCentroid[0];
-			translationVector[1] += yp - virtualCentroid[1];
-			translationVector[2] += zp - virtualCentroid[2];
+		int pixel = y * windowWidth/2 + x;
+	
+		//intrinsics
+		float cx = imageCollection->getIntrinsics().cx;
+		float cy = imageCollection->getIntrinsics().cy;
+		float fx = imageCollection->getIntrinsics().fx;
+		float fy = imageCollection->getIntrinsics().fy;
 
+		if(pixel >= 0 && pixel < (640 * 480)) {
+			if(imageCollection->getDepthMap()[pixel] != 0) {
+				
+				float xp = (float)(x - cx) * imageCollection->getDepthMap()[pixel]/fx;
+				float yp = (float)(y - cy) * imageCollection->getDepthMap()[pixel]/fy;
+				float zp = imageCollection->getDepthMap()[pixel];
+
+				translationVector[0] += xp - virtualCentroid[0];
+				translationVector[1] += yp - virtualCentroid[1];
+				translationVector[2] += zp - virtualCentroid[2];
+
+			}
 		}
+
 	}
 
+	if(ARVolumetric) {
+
+		//extract the reference point cloud
+		pcl::PointCloud<pcl::PointXYZ>::Ptr referenceCloud = reconstruction->extractFullPointCloud();
+		Eigen::Vector3f scaleFactor = reconstruction->getCurrentPointCloud()->computeScaleFactor(referenceCloud);
+		scale[0] = scaleFactor(0);
+		scale[1] = scaleFactor(1);
+		scale[2] = scaleFactor(2);
+
+		//convert the reference from global to current coordinates
+		Matrix3frm inverseRotation = reconstruction->getCurrentRotation().inverse();
+		reconstruction->getCurrentPointCloud()->convertFromGlobalToCurrent(referenceCloud, inverseRotation, reconstruction->getCurrentTranslation());
+				
+		//position the medical volume based to the reference's centroid
+		float centroid[3];
+		for(int axis = 0; axis < 3; axis++) centroid[axis] = 0;
+		for(int point = 0; point < referenceCloud->points.size(); point++) {
+			centroid[0] += referenceCloud->points[point].x;
+			centroid[1] += referenceCloud->points[point].y;
+			centroid[2] += referenceCloud->points[point].z;
+		}
+		for(int axis = 0; axis < 3; axis++) centroid[axis] /= referenceCloud->points.size();
+
+		translationVector[0] += centroid[0] - virtualCentroid[0];
+		translationVector[1] += centroid[1] - virtualCentroid[1];
+		translationVector[2] += centroid[2] - virtualCentroid[2];
+
+		if(isHeadPoseEstimationEnabled) {
+			sourceDepthData.resize(kinect->getImageWidth() * kinect->getImageHeight());
+			kinect->getDepthImage()->fillDepthImageRaw(kinect->getImageWidth(), kinect->getImageHeight(), &sourceDepthData[0]);
+			headPoseEstimationMediator->getHeadPoseEstimator()->run(&sourceDepthData[0]);
+		}
+
+	}
+			
 }
 
 void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
@@ -285,6 +328,17 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 	int end = 0;
 	int threshold = 5000;
 	
+	//AR Configuration
+	translationVector[0] = 0;
+	translationVector[1] = 0;
+	translationVector[2] = 0;
+	rotationAngles[0] = 0;
+	rotationAngles[1] = 0;
+	rotationAngles[2] = 0;
+	scale[0] = 1;
+	scale[1] = 1;
+	scale[2] = 1;
+
 	if(pcl::console::find_argument(argc, argv, "--cloud") >= 0) {
 	showCloud = true;
 	}
@@ -340,6 +394,12 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 			vrparams.rotationY = atoi(line.c_str());
 			std::getline(file, line);
 			vrparams.rotationZ = atoi(line.c_str());
+			std::getline(file, line);
+			rotationAngles[0] = atoi(line.c_str());
+			std::getline(file, line);
+			rotationAngles[1] = atoi(line.c_str());
+			std::getline(file, line);
+			rotationAngles[2] = atoi(line.c_str());
 			std::cout << "Path: " << volumetricPath << std::endl;
 			std::cout << "Number of the first slice: " << firstSlice << std::endl;
 			std::cout << "Number of the last slice: " << lastSlice << std::endl;
@@ -383,14 +443,6 @@ void loadARDepthDataBasedOnDepthMaps()
 	for(int p = 0; p < 640 * 480; p++)
 		depthData[p] = pointCloud[p * 3 + 2];///(float)reconstruction->getThreshold();
 	
-	/*
-	Eigen::Vector3f tr;
-	tr = -reconstruction->getCurrentTranslation();
-	reconstruction->getGlobalPreviousPointCloud()->getHostDepthMapTransformingOrganizedGlobalToCurrentPointCloud(curv,
-		imageCollection->getDepthDevice(), reconstruction->getCurrentRotation().inverse(), tr);
-	for(int p = 0; p < 640 * 480; p++)
-		depthData[p] = curv[p];///(float)reconstruction->getThreshold();
-	*/
 	myGLImageViewer->loadDepthComponentTexture(depthData, texVBO, VIRTUAL_DEPTH_BO, windowWidth, windowHeight);
 	glPixelTransferf(GL_DEPTH_SCALE, 1);
 	
@@ -476,8 +528,9 @@ void displayCloud(bool globalCoordinates = true)
 	myGLCloudViewer->loadIndices(indices, pointCloud);
 	myGLCloudViewer->loadVBOs(meshVBO, indices, pointCloud, normalVector);
 	
-	glViewport(0, 0, windowWidth/2, windowHeight/2);
-
+	//glViewport(0, 0, windowWidth/2, windowHeight/2);
+	glViewport(windowWidth/2, 0, windowWidth/2, windowHeight/2);
+	
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity(); 
 	
@@ -501,11 +554,39 @@ void displayQuadForVolumeRendering(bool front)
 	glMatrixMode(GL_PROJECTION);          
     glLoadIdentity(); 
 	myGLCloudViewer->configureQuadAmbient(reconstruction->getThreshold());
+
+	for(int axis = 0; axis < 3; axis++) {
+		modelViewParams.translationVector[axis] = translationVector[axis];
+		modelViewParams.rotationAngles[axis] = rotationAngles[axis];
+	}
 	
-	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
-		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
-		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
-		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
+	modelViewParams.gTrans = reconstruction->getCurrentTranslation();
+	modelViewParams.gRot = reconstruction->getCurrentRotation();
+	modelViewParams.initialTranslation = reconstruction->getInitialTranslation();
+	modelViewParams.rotationIndices[0] = vrparams.rotationX;
+	modelViewParams.rotationIndices[1] = vrparams.rotationY;
+	modelViewParams.rotationIndices[2] = vrparams.rotationZ;
+	modelViewParams.useTextureRotation = true;
+	modelViewParams.useHeadPoseRotation = false;
+	
+	if(isHeadPoseEstimationEnabled) {
+		Eigen::Matrix3f headRotationMatrix;
+		float mult = 0.0174532925f;
+		modelViewParams.useHeadPoseRotation = headPoseEstimationMediator->getHeadPoseEstimator()->hadSuccess();
+		if(headPoseEstimationMediator->getHeadPoseEstimator()->hadSuccess()) {
+			headPoseEstimationMediator->getHeadPoseEstimator()->eulerToRotationMatrix(headRotationMatrix, 
+				mult * -headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(0), 
+				mult * headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(2), 
+				mult * headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(1));
+			Eigen::Vector3f headCenterRotated = headRotationMatrix * headPoseEstimationMediator->getHeadPoseEstimator()->getHeadCenter(); 
+			modelViewParams.headCenter = headPoseEstimationMediator->getHeadPoseEstimator()->getHeadCenter();
+			modelViewParams.headEulerAngles = headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles();
+			modelViewParams.headCenterRotated = headCenterRotated;
+		}
+	}
+	else modelViewParams.useHeadPoseRotation = false;
+	
+	myGLCloudViewer->updateModelViewMatrix(modelViewParams);
 	glScalef(scale[0], scale[1], scale[2]);
 	
 	if(!front) {
@@ -514,7 +595,6 @@ void displayQuadForVolumeRendering(bool front)
 	} else {
 		glDisable(GL_CULL_FACE);
 	}
-
 	myGLCloudViewer->drawQuad(quadVBO);
 	glPopMatrix();
 
@@ -533,12 +613,40 @@ void displayMedicalVolume()
 	myGLCloudViewer->configureLight();
 
 	myGLImageViewer->setProgram(shaderProg[VRShaderID]);
-	myGLCloudViewer->updateModelViewMatrix(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), 
-		reconstruction->getCurrentRotation(), reconstruction->getInitialTranslation(), true, medicalVolume->getWidth(), 
-		medicalVolume->getHeight(), medicalVolume->getDepth(), vrparams.scaleWidth, vrparams.scaleHeight, vrparams.scaleDepth, 
-		vrparams.rotationX, vrparams.rotationY, vrparams.rotationZ);
-	glScalef(scale[0], scale[1], scale[2]);
+	for(int axis = 0; axis < 3; axis++) {
+		modelViewParams.translationVector[axis] = translationVector[axis];
+		modelViewParams.rotationAngles[axis] = rotationAngles[axis];
+	}
+	
+	modelViewParams.gTrans = reconstruction->getCurrentTranslation();
+	modelViewParams.gRot = reconstruction->getCurrentRotation();
+	modelViewParams.initialTranslation = reconstruction->getInitialTranslation();
+	modelViewParams.rotationIndices[0] = vrparams.rotationX;
+	modelViewParams.rotationIndices[1] = vrparams.rotationY;
+	modelViewParams.rotationIndices[2] = vrparams.rotationZ;
+	modelViewParams.useTextureRotation = true;
+	modelViewParams.useHeadPoseRotation = false;
 
+	if(isHeadPoseEstimationEnabled) {
+		Eigen::Matrix3f headRotationMatrix;
+		float mult = 0.0174532925f;
+		modelViewParams.useHeadPoseRotation = headPoseEstimationMediator->getHeadPoseEstimator()->hadSuccess();
+		if(headPoseEstimationMediator->getHeadPoseEstimator()->hadSuccess()) {
+			headPoseEstimationMediator->getHeadPoseEstimator()->eulerToRotationMatrix(headRotationMatrix, 
+				mult * -headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(0), 
+				mult * headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(2), 
+				mult * headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles()(1));
+			Eigen::Vector3f headCenterRotated = headRotationMatrix * headPoseEstimationMediator->getHeadPoseEstimator()->getHeadCenter(); 
+			modelViewParams.headCenter = headPoseEstimationMediator->getHeadPoseEstimator()->getHeadCenter();
+			modelViewParams.headEulerAngles = headPoseEstimationMediator->getHeadPoseEstimator()->getEulerAngles();
+			modelViewParams.headCenterRotated = headCenterRotated;
+		}
+	}
+	else modelViewParams.useHeadPoseRotation = false;
+	
+	myGLCloudViewer->updateModelViewMatrix(modelViewParams);
+	glScalef(scale[0], scale[1], scale[2]);
+	
 	myGLImageViewer->draw3DTexture(texVBO, AR_FROM_VOLUME_RENDERING_BO, MIN_MAX_OCTREE_BO, vrparams, FRONT_QUAD_RGB_FBO, BACK_QUAD_RGB_FBO, 
 		myGLCloudViewer->getEyePosition(), windowWidth/2, windowHeight/2, myGLCloudViewer, quadVBO, TRANSFER_FUNCTION_BO, NOISE_BO);
 	glPopMatrix();
@@ -598,8 +706,19 @@ void displayARDataFromOBJFile()
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	myGLCloudViewer->drawOBJ(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), reconstruction->getCurrentRotation(), 
-		reconstruction->getInitialTranslation());
+	
+	for(int axis = 0; axis < 3; axis++) {
+		modelViewParams.translationVector[axis] = translationVector[axis];
+		modelViewParams.rotationAngles[axis] = rotationAngles[axis];
+	}
+	
+	modelViewParams.gTrans = reconstruction->getCurrentTranslation();
+	modelViewParams.gRot = reconstruction->getCurrentRotation();
+	modelViewParams.initialTranslation = reconstruction->getInitialTranslation();
+	modelViewParams.useTextureRotation = false;
+	modelViewParams.useHeadPoseRotation = false;
+	myGLCloudViewer->drawOBJ(modelViewParams);
+	
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, realFrameBuffer);
@@ -615,8 +734,7 @@ void displayARDataFromOBJFile()
 	if(ARConfiguration) {
 
 		myGLCloudViewer->configureOBJAmbient(reconstruction->getThreshold());
-		myGLCloudViewer->drawOBJ(translationVector, rotationAngles, reconstruction->getCurrentTranslation(), reconstruction->getCurrentRotation(), 
-			reconstruction->getInitialTranslation());
+		myGLCloudViewer->drawOBJ(modelViewParams);
 
 	}
 
@@ -782,6 +900,7 @@ void idle()
 			coloredReconstructionMediator->updateColorVolume(imageCollection->getRgbDevice(), reconstruction);
 		if(workAround != 2)
 			workAround = 1;
+
 	}
 	calculateFPS();
 
@@ -840,6 +959,9 @@ void keyboard(unsigned char key, int x, int y)
 			myGLCloudViewer->setEyePosition(1, 0, 120);
 			focusRadius = 500;
 
+			if(ARVolumetric)
+				positionVirtualObject(320, 320);
+			
 			std::cout << "Enabling AR" << std::endl;
 			std::cout << "AR Enabled: Click the window to position the object (if necessary, use the scale factor (s)" << std::endl;
 			
@@ -1156,6 +1278,7 @@ void transformationMenu(int id)
 		isoSurfaceThresholdModificationOn = false;
 		ksOn = false;
 		ktOn = false;
+		//std::cout << rotationAngles[0] << " " << rotationAngles[1] << " " << rotationAngles[2] << std::endl;
 		break;
 	case 2:
 		translationOn = false;
@@ -1166,6 +1289,7 @@ void transformationMenu(int id)
 		isoSurfaceThresholdModificationOn = false;
 		ksOn = false;
 		ktOn = false;
+		std::cout << scale[0] << " " << scale[1] << " " << scale[2] << std::endl;
 		break;
 	}
 }
@@ -1280,15 +1404,17 @@ void init()
 		//triCubicInterpolationPreFilter->applyPreFilterForAccurateCubicBSplineInterpolation(medicalVolume->getData(), 
 			//medicalVolume->getWidth(), medicalVolume->getHeight(), medicalVolume->getDepth());
 
+		//Organize the data (only used by Marching Cubes)
+		medicalVolume->organizeData();
+
 		//build a min-max octree to allow the use of empty-space skipping and adaptive sampling
 		minMaxOctree = new MinMaxOctree(medicalVolume->getWidth(), medicalVolume->getHeight(), medicalVolume->getDepth());
 		minMaxOctree->build(medicalVolume->getData(), medicalVolume->getWidth(), medicalVolume->getHeight(), medicalVolume->getDepth());
 		
 		//load both textures
-		myGLImageViewer->load3DTexture(medicalVolume->getData(), texVBO, AR_FROM_VOLUME_RENDERING_BO, medicalVolume->getWidth(), 
-			medicalVolume->getHeight(), medicalVolume->getDepth());
-		myGLImageViewer->load3DTexture(minMaxOctree->getData(), texVBO, MIN_MAX_OCTREE_BO, minMaxOctree->getWidth(), 
-			minMaxOctree->getHeight(), minMaxOctree->getDepth());
+		myGLImageViewer->load3DTexture(medicalVolume->getData(), texVBO, AR_FROM_VOLUME_RENDERING_BO, medicalVolume->getWidth(), medicalVolume->getHeight(), 
+			medicalVolume->getDepth());
+		myGLImageViewer->load3DTexture(minMaxOctree->getData(), texVBO, MIN_MAX_OCTREE_BO, minMaxOctree->getWidth(), minMaxOctree->getHeight(), minMaxOctree->getDepth());
 		
 		//compute a transfer function to map the scalar value to some color
 		transferFunction = new TransferFunction();
@@ -1353,17 +1479,6 @@ void init()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 		std::cout << "FBO OK" << std::endl;
-
-	//AR Configuration
-	translationVector[0] = 0;
-	translationVector[1] = 0;
-	translationVector[2] = 0;
-	rotationAngles[0] = 0;
-	rotationAngles[1] = 0;
-	rotationAngles[2] = 0;
-	scale[0] = 1;
-	scale[1] = 1;
-	scale[2] = 1;
 
 }
 

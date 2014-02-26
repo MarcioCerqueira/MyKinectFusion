@@ -4,6 +4,7 @@ HeadPoseEstimationMediator::HeadPoseEstimationMediator(char *HPEConfigFileName) 
 	
 	this->HPEConfigFileName = HPEConfigFileName;
 	headPoseEstimator = new HeadPoseEstimator(HPEConfigFileName);
+
 }
 
 HeadPoseEstimationMediator::~HeadPoseEstimationMediator() {

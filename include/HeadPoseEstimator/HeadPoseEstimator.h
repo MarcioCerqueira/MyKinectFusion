@@ -21,11 +21,12 @@ public:
 	pcl::ModelCoefficients& getCylinder() { return cylinderCoeff; }
 	Eigen::Matrix3f& getRotationMatrixEstimated() { return rotationMatrixEstimated; }
 	Eigen::Vector3f& getHeadCenter() { return headCenter; }
+	Eigen::Vector3f& getEulerAngles() { return eulerAngles; }
 	bool hadSuccess() { return success; }
+	void eulerToRotationMatrix(Eigen::Matrix3f& rotationMatrix, float x, float y, float z);
 private:
 	void loadDefaults();
 	void loadConfigFile(char *configFileName);
-	void eulerToRotationMatrix(Eigen::Matrix3f& rotationMatrix, float x, float y, float z);
 	// Path to trees
 	std::string g_treepath;
 	// Number of trees
@@ -53,6 +54,7 @@ private:
 	std::vector< Vote > votes; //all votes returned by the forest
 	Eigen::Matrix3f rotationMatrixEstimated;
 	Eigen::Vector3f headCenter;
+	Eigen::Vector3f eulerAngles;
 	bool success;
 	pcl::ModelCoefficients cylinderCoeff;
 	CRForestEstimator *crfe;

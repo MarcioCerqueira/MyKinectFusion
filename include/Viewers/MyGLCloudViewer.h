@@ -8,6 +8,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include "Viewers/glm.h"
+#include "Viewers/ModelViewParams.h"
 #include "MyPointCloud.h"
 
 class MyGLCloudViewer
@@ -23,7 +24,7 @@ public:
 
 	void drawAxis();
 	void drawMesh(GLuint* VBOs, Eigen::Vector3f gTrans, Matrix3frm gRot, Eigen::Vector3f initialTranslation, float *rotationAngles, bool useShader, bool globalCoordinates);
-	void drawOBJ(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, Eigen::Vector3f initialTranslation);
+	void drawOBJ(ModelViewParams modelViewParams);
 	void drawQuad(GLuint *VBO);
 	
 	void loadARModel(char *fileName);
@@ -38,10 +39,7 @@ public:
 	void setDiffuseIntensity(float diffuseIntensity) { this->diffuseIntensity = diffuseIntensity; }
 	void setSpecularIntensity(float specularIntensity) { this->specularIntensity = specularIntensity; }
 	//void configure3DTexture(
-	void updateModelViewMatrix(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, 
-		Eigen::Vector3f initialTranslation, bool useTextureRotation = false, float volumeWidth = 0, float volumeHeight = 0, 
-		float volumeDepth = 0, float scaleWidth = 0, float scaleHeight = 0, float scaleDepth = 0, int rotationX = 0, int rotationY = 0,
-		int rotationZ = 0);
+	void updateModelViewMatrix(ModelViewParams modelViewParams);
 private:
 	GLMmodel* ARModel;
 	float eyePos[3];

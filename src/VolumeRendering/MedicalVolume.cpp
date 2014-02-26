@@ -36,6 +36,7 @@ void MedicalVolume::loadTIFData(char *path, int firstSlice, int lastSlice)
 			data[(image - firstSlice) * imageStep + pixel * 4 + 3] = grayValue;
 
 		}
+	
 	}
 
 }
@@ -144,4 +145,29 @@ void MedicalVolume::loadRAWData(char *path, int width, int height, int depth)
 	}
 
 	delete [] content;
+}
+
+void MedicalVolume::organizeData() {
+	
+	grid.clear();
+	grid.resize(width);
+	for(int x = 0; x < width; x++) {
+		grid[x].resize(height);
+		for(int y = 0; y < height; y++) {
+			grid[x][y].resize(depth);
+			for(int z = 0; z < depth; z++) {
+				grid[x][y][z] = 0;
+			}
+		}
+	}
+
+	int imageStep = width * height * 4;
+	for(int x = 0; x < width; x++) {
+		for(int y = 0; y < height; y++) {
+			for(int z = 0; z < depth; z++) {
+				grid[x][y][z] = data[z * imageStep + (y * width + x) * 4];
+			}
+		}
+	}
+
 }

@@ -159,7 +159,7 @@ namespace pcl
 		float b = sqrtf(powf(v00.x - v10.x, 2) + powf(v00.y - v10.y, 2) + powf(v00.z - v10.z, 2));
 		float c = sqrtf(powf(v00.x - v02.x, 2) + powf(v00.y - v02.y, 2) + powf(v00.z - v02.z, 2));
 		float d = sqrtf(powf(v00.x - v20.x, 2) + powf(v00.y - v20.y, 2) + powf(v00.z - v20.z, 2));
-		curvatureMap[v * cols + u] = (a + b + c + d)/(2 * sqrtf(powf(v00.x, 2) + powf(v00.y, 2) + powf(v00.z, 2)));
+		curvatureMap[v * cols + u] = (a + b + c + d)/(2 * 4);
 		curvatureMap[v * cols + u] = 1 - powf(1 - curvatureMap[v * cols + u], 0.9);
 		
       } else {

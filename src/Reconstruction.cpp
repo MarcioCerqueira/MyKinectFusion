@@ -35,8 +35,8 @@ Reconstruction::Reconstruction(Eigen::Vector3i& volumeSize) {
 
 }
 
-void Reconstruction::savePointCloud() {
-	
+pcl::PointCloud<pcl::PointXYZ>::Ptr Reconstruction::extractFullPointCloud() {
+
 	DeviceArray<pcl::PointXYZ> extractedCloudDevice;
 	DeviceArray<PointXYZ> extracted =  tsdfVolume_->fetchCloud(extractedCloudDevice);
 
@@ -44,12 +44,19 @@ void Reconstruction::savePointCloud() {
 	extracted.download(hostCloud->points);
 	hostCloud->width = (int)hostCloud->points.size ();
 	hostCloud->height = 1;
+
+	return hostCloud;
+
+}
+
+void Reconstruction::savePointCloud() {
 	
+	pcl::PointCloud<pcl::PointXYZ>::Ptr fullCloud = extractFullPointCloud();
 	char fileToSave[1000];
 	std::cout << "Write filename..." << std::endl;
 	std::cin >> fileToSave;
 	std::cout << fileToSave << std::endl;
-	pcl::io::savePCDFile(fileToSave, *hostCloud); 
+	pcl::io::savePCDFile(fileToSave, *fullCloud); 
 	std::cout << "Model saved..." << std::endl;
 
 }

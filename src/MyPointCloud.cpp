@@ -157,6 +157,57 @@ float MyPointCloud::computeFinalError() {
 	return error2/count;
 }
 
+Eigen::Vector3f MyPointCloud::computeScaleFactor(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
+
+	Eigen::Vector3f minValues(0, 0, 0);
+	Eigen::Vector3f maxValues(0, 0, 0);
+	Eigen::Vector3f scaleFactor;
+
+	for(int point = 0; point < cloud->points.size(); point++) {
+		if(point == 0) {
+			minValues(0) = cloud->points[point].x;
+			minValues(1) = cloud->points[point].y;
+			minValues(2) = cloud->points[point].z;
+			maxValues(0) = cloud->points[point].x;
+			maxValues(1) = cloud->points[point].y;
+			maxValues(2) = cloud->points[point].z;
+		} else {
+			if(cloud->points[point].x < minValues(0)) minValues(0) = cloud->points[point].x;
+			if(cloud->points[point].y < minValues(1)) minValues(1) = cloud->points[point].y;
+			if(cloud->points[point].z < minValues(2)) minValues(2) = cloud->points[point].z;
+			if(cloud->points[point].x > maxValues(0)) maxValues(0) = cloud->points[point].x;
+			if(cloud->points[point].y > maxValues(1)) maxValues(1) = cloud->points[point].y;
+			if(cloud->points[point].z > maxValues(2)) maxValues(2) = cloud->points[point].z;
+		}
+	}
+
+	scaleFactor(0) = (maxValues(0) - minValues(0))/2;
+	scaleFactor(1) = (maxValues(1) - minValues(1))/2;
+	scaleFactor(2) = (maxValues(2) - minValues(2))/2;
+	return scaleFactor;
+
+}
+
+void MyPointCloud::convertFromGlobalToCurrent(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, Matrix3frm inverseRotation, Eigen::Vector3f& translationVector) {
+	
+	float newX, newY, newZ;
+	for(int point = 0; point < cloud->points.size(); point++) {
+		if(cloud->points[point].z > 0 && cloud->points[point].z == cloud->points[point].z) {
+
+			cloud->points[point].x -= translationVector(0);
+			cloud->points[point].y -= translationVector(1);
+			cloud->points[point].z -= translationVector(2);
+			newX = inverseRotation(0, 0) * cloud->points[point].x + inverseRotation(0, 1) * cloud->points[point].y + inverseRotation(0, 2) * cloud->points[point].z;
+			newY = inverseRotation(1, 0) * cloud->points[point].x + inverseRotation(1, 1) * cloud->points[point].y + inverseRotation(1, 2) * cloud->points[point].z;
+			newZ = inverseRotation(2, 0) * cloud->points[point].x + inverseRotation(2, 1) * cloud->points[point].y + inverseRotation(2, 2) * cloud->points[point].z;
+			cloud->points[point].x = newX;
+			cloud->points[point].y = newY;
+			cloud->points[point].z = newZ;
+
+		}
+	}
+
+}
 void MyPointCloud::getHostErrorInRGB(DeviceArray2D<pcl::PointXYZI>& errorInRGB) {
 
 	errorInRGB.create(rows_ , cols_);

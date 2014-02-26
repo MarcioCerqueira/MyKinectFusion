@@ -39,6 +39,9 @@ public:
 	bool alignPointClouds(std::vector<Matrix3frm>& Rcam, std::vector<Vector3f>& tcam, MyPointCloud *globalPreviousPointCloud, device::Intr& intrinsics, int globalTime);
 	float computeFinalError();
 	
+	Eigen::Vector3f computeScaleFactor(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud);
+	void convertFromGlobalToCurrent(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, Matrix3frm inverseRotation, Eigen::Vector3f& translationVector);
+
 	void getLastFrameCloud(DeviceArray2D<pcl::PointXYZ>& cloud);
 	void getLastFrameNormals(DeviceArray2D<pcl::PointXYZ>& normals);
 	Eigen::Vector3f& getCentroid();

@@ -120,6 +120,10 @@ void HeadPoseEstimator::run(unsigned short *data) {
 			headCenter(1) = means[i][1];
 			headCenter(2) = means[i][2];
 			
+			eulerAngles(0) = means[i][3];
+			eulerAngles(1) = means[i][4];
+			eulerAngles(2) = means[i][5];
+
 			faceCurrDir = rotationMatrixEstimated * faceDir;
 
 			headFront(0) = headCenter(0) + 150.f * faceCurrDir(0);

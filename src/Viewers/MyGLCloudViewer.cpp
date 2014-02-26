@@ -232,14 +232,14 @@ void MyGLCloudViewer::drawMesh(GLuint* VBOs, Eigen::Vector3f gTrans, Matrix3frm 
     	glUseProgram(0);
 }
 
-void MyGLCloudViewer::drawOBJ(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, 
-	Eigen::Vector3f initialTranslation)
+void MyGLCloudViewer::drawOBJ(ModelViewParams modelViewParams)
 {
 
 	glEnable(GL_LIGHTING);
 	glFrontFace(GL_CW);
 
-	updateModelViewMatrix(translationVector, rotationAngles, gTrans, gRot, initialTranslation);
+
+	updateModelViewMatrix(modelViewParams);
 	//glMultMatrixf(mat);
 	//glMultMatrixf(mat);
 	
@@ -425,47 +425,54 @@ void MyGLCloudViewer::setProgram(GLuint shaderProg)
 	this->shaderProg = shaderProg;
 }
 
-void MyGLCloudViewer::updateModelViewMatrix(float *translationVector, float *rotationAngles, Eigen::Vector3f gTrans, Matrix3frm gRot, 
-		Eigen::Vector3f initialTranslation, bool useTextureRotation, float volumeWidth, float volumeHeight, float volumeDepth, 
-		float scaleWidth, float scaleHeight, float scaleDepth, int rotationX, int rotationY, int rotationZ) 
+void MyGLCloudViewer::updateModelViewMatrix(ModelViewParams modelViewParams) 
 {
 
 	glPushMatrix();
-		
+	
 	glRotatef(180, 0, 1, 0);
 
-	Matrix3frm g2 = gRot.inverse();
-	GLfloat mat[16] = {g2(0, 0), g2(0, 1), g2(0, 2), 0,
-					   g2(1, 0), g2(1, 1), g2(1, 2), 0,
-					   g2(2, 0), g2(2, 1), g2(2, 2), 0,
-					   0, 0, 0, 1};
+	Matrix3frm gRot = modelViewParams.gRot;
 	
 	GLfloat mat2[16] = {gRot(0, 0), gRot(0, 1), gRot(0, 2), 0,
 					   gRot(1, 0), gRot(1, 1), gRot(1, 2), 0,
 					   gRot(2, 0), gRot(2, 1), gRot(2, 2), 0,
 					   0, 0, 0, 1};
-
 	
 	glMultMatrixf(mat2);
-	glTranslatef(-gTrans(0), -gTrans(1), -gTrans(2));
-	glTranslatef(initialTranslation(0), initialTranslation(1), initialTranslation(2));
-	glTranslatef(translationVector[0], translationVector[1], translationVector[2]);
+	glTranslatef(-modelViewParams.gTrans(0), -modelViewParams.gTrans(1), -modelViewParams.gTrans(2));
+	glTranslatef(modelViewParams.initialTranslation(0), modelViewParams.initialTranslation(1), modelViewParams.initialTranslation(2));
+	glTranslatef(modelViewParams.translationVector[0], modelViewParams.translationVector[1], modelViewParams.translationVector[2]);
 	
-	if(!useTextureRotation) {
+	if(!modelViewParams.useTextureRotation) {
 
-		glRotatef(rotationAngles[0], 1, 0, 0);
-		glRotatef(rotationAngles[1], 0, 1, 0);
-		glRotatef(rotationAngles[2], 0, 0, 1);
+		glRotatef(modelViewParams.rotationAngles[0], 1, 0, 0);
+		glRotatef(modelViewParams.rotationAngles[1], 0, 1, 0);
+		glRotatef(modelViewParams.rotationAngles[2], 0, 0, 1);
 
 	} else {
 
-		glRotatef(rotationAngles[rotationX], 1, 0, 0);
-		glRotatef(rotationAngles[rotationY], 0, 1, 0);
-		glRotatef(rotationAngles[rotationZ], 0, 0, 1);
+		int rotationX = modelViewParams.rotationIndices[0];
+		int rotationY = modelViewParams.rotationIndices[1];
+		int rotationZ = modelViewParams.rotationIndices[2];
+		glRotatef(modelViewParams.rotationAngles[rotationX], 1, 0, 0);
+		glRotatef(modelViewParams.rotationAngles[rotationY], 0, 1, 0);
+		glRotatef(modelViewParams.rotationAngles[rotationZ], 0, 0, 1);
 
 	}
 
 	//My solution to the orientation problem	
 	glRotatef(180, 1, 0, 0);
-	
+
+	if(modelViewParams.useHeadPoseRotation) {
+		int rotationX = modelViewParams.rotationIndices[0];
+		int rotationY = modelViewParams.rotationIndices[1];
+		int rotationZ = modelViewParams.rotationIndices[2];
+		glTranslatef(-modelViewParams.headCenterRotated(0), -modelViewParams.headCenterRotated(1), -modelViewParams.headCenterRotated(2));
+		glRotatef(-modelViewParams.headEulerAngles(rotationX), 1, 0, 0);
+		glRotatef(modelViewParams.headEulerAngles(rotationY), 0, 1, 0);
+		glRotatef(modelViewParams.headEulerAngles(rotationZ), 0, 0, 1);
+		glTranslatef(modelViewParams.headCenter(0), modelViewParams.headCenter(1), modelViewParams.headCenter(2));
+	}
+
 }

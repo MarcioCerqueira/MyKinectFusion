@@ -40,6 +40,7 @@ public:
 	Reconstruction(Eigen::Vector3i& volumeSize);
 	~Reconstruction();
 	void run(Image *image);
+	
 	//HeadPoseEstimationMediator
 	bool reRunICP();
 	void reRunRaycasting();
@@ -77,12 +78,14 @@ public:
 	Eigen::Vector3f getGlobalCentroid() { return globalPreviousPointCloud_->getCentroid(); }
 	MyPointCloud* getCurrentPointCloud() { return currentPointCloud_; }
 	MyPointCloud* getGlobalPreviousPointCloud() { return globalPreviousPointCloud_; }
-
+	
 	bool hasImage() { return hasImage_; }
-	void savePointCloud();
 	bool hasErrorVisualization() { return hasErrorVisualization_; }
 	bool isOnlyTrackingStopped() { return stopTracking_; }
 	bool isOnlyTrackingOn() { return isOnlyTrackingOn_; }
+	
+	pcl::PointCloud<pcl::PointXYZ>::Ptr extractFullPointCloud();
+	void savePointCloud();
 	
 private:
 
