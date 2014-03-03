@@ -9,6 +9,7 @@ typedef struct AROcclusionParams
 	int virtualRGBIndex;
 	int virtualDepthIndex;
 	int curvatureMapIndex;
+	int contoursMapIndex; //ghostViewBasedOnClipping
 	int windowWidth;
 	int windowHeight;
 	bool ARPolygonal;
@@ -17,9 +18,10 @@ typedef struct AROcclusionParams
 	bool alphaBlending;
 	bool ghostViewBasedOnCurvatureMap;
 	bool ghostViewBasedOnDistanceFalloff;
-	bool ghostViewBasedOnCurvatureAndDistance;
+	bool ghostViewBasedOnClipping;
 	float curvatureWeight;
 	float distanceFalloffWeight;
+	float clippingWeight;
 	float focusPoint[2];
 	float focusRadius;
 } AROcclusionParams;

@@ -5,6 +5,13 @@ uniform sampler2D noise;
 uniform sampler2D frontFrameBuffer;
 uniform sampler2D backFrameBuffer;
 uniform float stepSize;
+uniform int clippingPlane;
+uniform float clippingPlaneLeftX;
+uniform float clippingPlaneRightX;
+uniform float clippingPlaneUpY;
+uniform float clippingPlaneDownY;
+uniform float clippingPlaneFrontZ;
+uniform float clippingPlaneBackZ;
 uniform float earlyRayTerminationThreshold;
 uniform vec3 camera;
 varying vec3 v;
@@ -94,6 +101,16 @@ vec4 computeIllumination(vec4 scalar, vec3 position)
 	return scalar;
 }
 
+bool checkClippingPlane(vec3 position) 
+{
+	if(position.x > clippingPlaneLeftX && position.x < clippingPlaneRightX 
+	&& position.y > clippingPlaneDownY && position.y < clippingPlaneUpY
+	&& position.z > clippingPlaneFrontZ && position.z < clippingPlaneBackZ)
+		return false;
+	else
+		return true;
+}
+
 void main (void)  
 {
 
@@ -119,13 +136,15 @@ void main (void)
 	//float maxStepSize = 4 * stepSize;
 	float accLength = 0.0;
 	vec4 maxOpacity;
+	bool clip = false;
 	
 	for(int i = 0; i < 100; i++) //Some large number
 	{
 		
 		maxOpacity = texture3D(minMaxOctree, position);
-		if(maxOpacity.g > 0.0) {
-
+		if(clippingPlane) clip = checkClippingPlane(position);
+		if(maxOpacity.g > 0.0 && !clip) {
+		
 			//Data access to scalar value in 3D volume texture
 			value = texture3D(volume, position);
 			

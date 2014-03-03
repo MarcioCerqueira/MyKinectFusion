@@ -1,5 +1,3 @@
-// TCCKinFu.cpp : Defines the entry point for the console application.
-//
 
 #include <iostream>
 #include <pcl/console/parse.h>
@@ -77,7 +75,8 @@ enum
 	FRONT_QUAD_DEPTH_FBO = 13,
 	BACK_QUAD_RGB_FBO = 14,
 	BACK_QUAD_DEPTH_FBO = 15,
-	CURVATURE_MAP_FBO = 16
+	CURVATURE_MAP_FBO = 16, 
+	CONTOURS_FBO = 17
 };
 
 int indices[640 * 480 * 6];
@@ -88,7 +87,8 @@ float curvature[640 * 480];
 unsigned short curv[640 * 480];
 
 float curvatureWeight = 0;
-float distanceFalloffWeight = 0.9;
+float distanceFalloffWeight = 10.0;
+float clippingWeight = 0;
 float focusPoint[2] = {0, 0};
 float focusRadius = 50;
 
@@ -107,9 +107,21 @@ bool ksOn = false;
 bool ktOn = false;
 bool curvatureWeightOn = false;
 bool distanceFallOffWeightOn = false;
+bool clippingWeightOn = false;
 bool focusRadiusOn = false;
+bool clippingPlaneLeftXOn = false;
+bool clippingPlaneRightXOn = false;
+bool clippingPlaneUpYOn = false;
+bool clippingPlaneDownYOn = false;
+bool clippingPlaneFrontZOn = false;
+bool clippingPlaneBackZOn = false;
 bool AR = false;
 bool ARConfiguration = false;
+
+bool alphaBlendingOn = true;
+bool curvatureBlendingOn = false;
+bool distanceFalloffBlendingOn = false;
+bool clippingBlendingOn = false;
 
 //AR Configuration (Polygonal model)
 bool ARPolygonal = false;
@@ -137,6 +149,14 @@ bool showRaycasting = true;
 bool showDepthMap = true;
 bool showRGBMap = true;
 bool showCurvatureMap = false;
+bool showContoursMap = false;
+
+/*
+float upY = 0.0f;
+float downY = 1.0f;
+float frontZ = 0.0f;
+float backZ = 1.0f;
+*/
 
 //
 // Global handles for the currently active program object, with its two shader objects
@@ -448,6 +468,67 @@ void loadARDepthDataBasedOnDepthMaps()
 	
 }
 
+void computeVolumeContours()
+{
+
+	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	
+	myGLImageViewer->setProgram(shaderProg[7]);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, VIRTUAL_RGB_BO, windowWidth, windowHeight);
+	myGLImageViewer->loadFrameBufferTexture(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	
+	glScissor(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glEnable(GL_SCISSOR_TEST);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_SCISSOR_TEST);
+	
+	unsigned char *volumeImage = myGLImageViewer->getFrameBuffer();
+	
+	IplImage *image = cvCreateImage(cvSize(windowWidth/2, windowHeight/2), IPL_DEPTH_8U, 3);
+	IplImage *grayImage = cvCreateImage(cvSize(windowWidth/2, windowHeight/2), IPL_DEPTH_8U, 1);
+	CvMemStorage* storage = cvCreateMemStorage(0);
+	CvSeq* contours = 0;
+	
+	image->imageData = (char*)volumeImage;
+	cvCvtColor(image, grayImage, CV_BGR2GRAY);
+	cvThreshold(grayImage, grayImage, 0, 255, CV_THRESH_OTSU);
+	cvFindContours(grayImage, storage, &contours);
+	cvDrawContours(grayImage, contours, cvScalarAll(255), cvScalarAll(0), 100);
+
+	double K[] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };  
+  
+	float t=0;  
+	for(int i = 0; i < (3 * 3); ++i)  
+		 t = t + K[i];  
+	for(int i = 0; i < (3 * 3); ++i)  
+		 K[i] = K[i] / t;  
+  
+	CvMat kernel = cvMat(3, 3, CV_64FC1, K); 
+	for(int x = 0; x < 8; x++)
+		cvFilter2D(grayImage, grayImage, &kernel);
+
+	for(int pixel = 0; pixel < (640 * 480); pixel++)
+		for(int ch = 0; ch < 3; ch++)
+			image->imageData[pixel * 3 + ch] = grayImage->imageData[pixel];
+
+	myGLImageViewer->loadRGBTexture((unsigned char*)image->imageData, texVBO, CONTOURS_FBO, image->width, image->height);
+
+	cvReleaseImage(&image);
+	cvReleaseImage(&grayImage);
+	cvClearMemStorage(storage);
+
+	/*
+	glViewport(windowWidth/2, windowHeight/2, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	
+	myGLImageViewer->setProgram(shaderProg[7]);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, CONTOURS_FBO, windowWidth, windowHeight);
+	*/
+}
+
 void reshape(int w, int h)
 {
 	windowWidth = w;
@@ -458,6 +539,18 @@ void reshape(int w, int h)
 	glLoadIdentity();
 	gluOrtho2D( 0, windowWidth, 0, windowHeight );
 	glMatrixMode( GL_MODELVIEW );
+
+}
+
+void displayContoursData()
+{
+
+	glViewport(windowWidth/2, windowHeight/2, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	
+	myGLImageViewer->setProgram(shaderProg[7]);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, CONTOURS_FBO, windowWidth, windowHeight);
 
 }
 
@@ -690,6 +783,8 @@ void displayARDataFromVolume()
 	occlusionParams.ARFromVolumeRendering = false;
 	occlusionParams.alphaBlending = true;
 	occlusionParams.ghostViewBasedOnCurvatureMap = false;
+	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
+	occlusionParams.ghostViewBasedOnClipping = false;
 	
 	myGLImageViewer->setProgram(shaderProg[1]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
@@ -756,7 +851,10 @@ void displayARDataFromOBJFile()
 	occlusionParams.ARFromKinectFusionVolume = false;
 	occlusionParams.ARFromVolumeRendering = false;
 	occlusionParams.alphaBlending = true;
-
+	occlusionParams.ghostViewBasedOnCurvatureMap = false;
+	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
+	occlusionParams.ghostViewBasedOnClipping = false;
+	
 	myGLImageViewer->setProgram(shaderProg[1]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
@@ -767,9 +865,11 @@ void displayARDataFromVolumeRendering()
 	
 	glEnable(GL_DEPTH_TEST);
 	
-	reconstruction->getGlobalPreviousPointCloud()->getHostCurvature(curvature);
-	myGLImageViewer->loadDepthComponentTexture(curvature, texVBO, CURVATURE_MAP_FBO, windowWidth, windowHeight);
-	
+	if(curvatureBlendingOn) {
+		reconstruction->getGlobalPreviousPointCloud()->getHostCurvature(curvature);
+		myGLImageViewer->loadDepthComponentTexture(curvature, texVBO, CURVATURE_MAP_FBO, windowWidth, windowHeight);
+	}
+
 	glBindFramebuffer(GL_FRAMEBUFFER, backQuadFrameBuffer);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	displayQuadForVolumeRendering(false);
@@ -786,7 +886,10 @@ void displayARDataFromVolumeRendering()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	loadARDepthDataBasedOnDepthMaps();	
-	
+
+	if(clippingBlendingOn) 
+		computeVolumeContours();
+
 	//Fourth Viewport: Virtual + Real Object
 	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
@@ -800,23 +903,26 @@ void displayARDataFromVolumeRendering()
 	occlusionParams.virtualRGBIndex = VIRTUAL_RGB_BO;
 	occlusionParams.virtualDepthIndex = VIRTUAL_DEPTH_BO;
 	occlusionParams.curvatureMapIndex = CURVATURE_MAP_FBO;
+	occlusionParams.contoursMapIndex = CONTOURS_FBO;
 	occlusionParams.windowWidth = windowWidth;
 	occlusionParams.windowHeight = windowHeight;
 	occlusionParams.ARPolygonal = false;
 	occlusionParams.ARFromKinectFusionVolume = false;
 	occlusionParams.ARFromVolumeRendering = true;
-	occlusionParams.alphaBlending = true;
-	occlusionParams.ghostViewBasedOnCurvatureMap = false;
-	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
+	occlusionParams.alphaBlending = alphaBlendingOn;
+	occlusionParams.ghostViewBasedOnCurvatureMap = curvatureBlendingOn;
+	occlusionParams.ghostViewBasedOnDistanceFalloff = distanceFalloffBlendingOn;
+	occlusionParams.ghostViewBasedOnClipping = clippingBlendingOn;
 	occlusionParams.curvatureWeight = curvatureWeight;
 	occlusionParams.distanceFalloffWeight = distanceFalloffWeight;
+	occlusionParams.clippingWeight = clippingWeight;
 	occlusionParams.focusPoint[0] = focusPoint[0];
 	occlusionParams.focusPoint[1] = focusPoint[1];
 	occlusionParams.focusRadius = focusRadius;
 
 	myGLImageViewer->setProgram(shaderProg[1]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
-
+	
 }
 
 void display()
@@ -844,6 +950,8 @@ void display()
 	} else {
 		if(showCloud)
 			displayCloud(ARConfiguration);
+		if(showContoursMap)
+			displayContoursData();
 		if(ARPolygonal)
 			displayARDataFromOBJFile();
 		if(ARVolumetric)
@@ -986,6 +1094,7 @@ void keyboard(unsigned char key, int x, int y)
 		break;
 	case (int)'d':
 		focusRadius = 50;
+		distanceFalloffWeight = 2.0;
 		break;
 	default:
 		break;
@@ -1021,6 +1130,16 @@ void specialKeyboard(int key, int x, int y)
 			focusRadius += 5;
 		if(distanceFallOffWeightOn)
 			distanceFalloffWeight += 0.1;
+		if(clippingWeightOn)
+			clippingWeight += 0.5;
+		if(clippingPlaneUpYOn) {
+			vrparams.clippingPlaneUpY += 0.05;
+			if(vrparams.clippingPlaneUpY > 1) vrparams.clippingPlaneUpY = 1;
+		}
+		if(clippingPlaneDownYOn) {
+			vrparams.clippingPlaneDownY += 0.05;
+			if(vrparams.clippingPlaneDownY > 1) vrparams.clippingPlaneDownY = 1;
+		}
 		break;
 	case GLUT_KEY_DOWN:
 		if(translationOn)
@@ -1053,6 +1172,18 @@ void specialKeyboard(int key, int x, int y)
 			distanceFalloffWeight -= 0.1;
 			if(distanceFalloffWeight < 0) distanceFalloffWeight = 0;
 		}
+		if(clippingWeightOn) {
+			clippingWeight -= 0.5;
+			if(clippingWeight < 0) clippingWeight = 0;
+		}
+		if(clippingPlaneUpYOn) {
+			vrparams.clippingPlaneUpY -= 0.05;
+			if(vrparams.clippingPlaneUpY < 0) vrparams.clippingPlaneUpY = 0;
+		}
+		if(clippingPlaneDownYOn) {
+			vrparams.clippingPlaneDownY -= 0.05;
+			if(vrparams.clippingPlaneDownY < 0) vrparams.clippingPlaneDownY = 0;
+		}
 		break;
 	case GLUT_KEY_LEFT:
 		if(translationOn)
@@ -1061,6 +1192,14 @@ void specialKeyboard(int key, int x, int y)
 			rotationAngles[0] -= vel;
 		if(scaleOn)
 			setScale(0, false);
+		if(clippingPlaneLeftXOn) {
+			vrparams.clippingPlaneLeftX += 0.05f;
+			if(vrparams.clippingPlaneLeftX > 1) vrparams.clippingPlaneLeftX = 1;
+		}
+		if(clippingPlaneRightXOn) {
+			vrparams.clippingPlaneRightX += 0.05f;
+			if(vrparams.clippingPlaneRightX > 1) vrparams.clippingPlaneRightX = 1;
+		}
 		break;
 	case GLUT_KEY_RIGHT:
 		if(translationOn)
@@ -1069,6 +1208,13 @@ void specialKeyboard(int key, int x, int y)
 			rotationAngles[0] += vel;
 		if(scaleOn)
 			setScale(0, true);
+		if(clippingPlaneLeftXOn) {
+			vrparams.clippingPlaneLeftX -= 0.05f;
+			if(vrparams.clippingPlaneLeftX < 0) vrparams.clippingPlaneLeftX = 0;
+		} if(clippingPlaneRightXOn) {
+			vrparams.clippingPlaneRightX -= 0.05f;
+			if(vrparams.clippingPlaneRightX < 0) vrparams.clippingPlaneRightX = 0;
+		}
 		break;
 	case GLUT_KEY_PAGE_UP:
 		if(translationOn)
@@ -1077,6 +1223,14 @@ void specialKeyboard(int key, int x, int y)
 			rotationAngles[2] += vel;
 		if(scaleOn)
 			setScale(2, true);
+		if(clippingPlaneFrontZOn) {
+			vrparams.clippingPlaneFrontZ += 0.05f;
+			if(vrparams.clippingPlaneFrontZ > 1) vrparams.clippingPlaneFrontZ = 1;
+		}
+		if(clippingPlaneBackZOn) {
+			vrparams.clippingPlaneBackZ += 0.05f;
+			if(vrparams.clippingPlaneBackZ > 1) vrparams.clippingPlaneBackZ = 1;
+		}
 		break;
 	case GLUT_KEY_PAGE_DOWN:
 		if(translationOn)
@@ -1085,6 +1239,14 @@ void specialKeyboard(int key, int x, int y)
 			rotationAngles[2] -= vel;
 		if(scaleOn)
 			setScale(2, false);
+		if(clippingPlaneFrontZOn) {
+			vrparams.clippingPlaneFrontZ -= 0.05f;
+			if(vrparams.clippingPlaneFrontZ < 0) vrparams.clippingPlaneFrontZ = 0;
+		}
+		if(clippingPlaneBackZOn) {
+			vrparams.clippingPlaneBackZ -= 0.05f;
+			if(vrparams.clippingPlaneBackZ < 0) vrparams.clippingPlaneBackZ = 0;
+		}
 		break;
 	default:
 		break;
@@ -1146,152 +1308,137 @@ void volumeRenderingMenu(int id)
 
 void thresholdMenu(int id)
 {
+
+	translationOn = false;
+	rotationOn = false;
+	scaleOn = false;
+	earlyRayTerminationOn = false;
+	stepSizeModificationOn = false;
+	isoSurfaceThresholdModificationOn = false;
+	ksOn = false;
+	ktOn = false;
+	curvatureWeightOn = false;
+	focusRadiusOn = false;
+	distanceFallOffWeightOn = false;
+	clippingPlaneLeftXOn = false;
+	clippingPlaneRightXOn = false;
+	clippingPlaneUpYOn = false;
+	clippingPlaneDownYOn = false;
+	clippingPlaneFrontZOn = false;
+	clippingPlaneBackZOn = false;
+	clippingWeightOn = false;
+	
 	switch(id)
 	{
 	case 0:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
 		earlyRayTerminationOn = true;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false;
-		ksOn = false;
-		ktOn = false;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 1:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
 		stepSizeModificationOn = true;
-		isoSurfaceThresholdModificationOn = false; 
-		ksOn = false;
-		ktOn = false;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 2:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
 		isoSurfaceThresholdModificationOn = true; 
-		ksOn = false;
-		ktOn = false;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 3:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false; 
 		ksOn = true;
-		ktOn = false;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 4:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false; 
-		ksOn = false;
 		ktOn = true;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 5:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false; 
-		ksOn = false;
-		ktOn = false;
 		curvatureWeightOn = true;
-		focusRadiusOn = false;
-		distanceFallOffWeightOn = false;
 		break;
 	case 6:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false; 
-		ksOn = false;
-		ktOn = false;
-		curvatureWeightOn = false;
-		focusRadiusOn = false;
 		distanceFallOffWeightOn = true;
 		break;
 	case 7:
-		translationOn = false;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false; 
-		ksOn = false;
-		ktOn = false;
-		curvatureWeightOn = false;
 		focusRadiusOn = true;
-		distanceFallOffWeightOn = false;
+		break;
+	case 8:
+		clippingPlaneLeftXOn = true;
+		break;
+	case 9:
+		clippingPlaneRightXOn = true;
+		break;
+	case 10:
+		clippingPlaneUpYOn = true;
+		break;
+	case 11:
+		clippingPlaneDownYOn = true;
+		break;
+	case 12:
+		clippingPlaneFrontZOn = true;
+		break;
+	case 13:
+		clippingPlaneBackZOn = true;
+		break;
+	case 14:
+		clippingWeightOn = true;
 		break;
 	}
 }
 
 void transformationMenu(int id)
 {
+
+	translationOn = false;
+	rotationOn = false;
+	scaleOn = false;
+	earlyRayTerminationOn = false;
+	stepSizeModificationOn = false;
+	isoSurfaceThresholdModificationOn = false;
+	ksOn = false;
+	ktOn = false;
+	curvatureWeightOn = false;
+	focusRadiusOn = false;
+	distanceFallOffWeightOn = false;
+	clippingPlaneLeftXOn = false;
+	clippingPlaneRightXOn = false;
+	clippingPlaneUpYOn = false;
+	clippingPlaneDownYOn = false;
+	clippingPlaneFrontZOn = false;
+	clippingPlaneBackZOn = false;
+	clippingWeightOn = false;
+
 	switch(id)
 	{
 	case 0:
 		translationOn = true;
-		rotationOn = false;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false;
-		ksOn = false;
-		ktOn = false;
 		break;
 	case 1:
-		translationOn = false;
 		rotationOn = true;
-		scaleOn = false;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false;
-		ksOn = false;
-		ktOn = false;
-		//std::cout << rotationAngles[0] << " " << rotationAngles[1] << " " << rotationAngles[2] << std::endl;
 		break;
 	case 2:
-		translationOn = false;
-		rotationOn = false;
 		scaleOn = true;
-		earlyRayTerminationOn = false;
-		stepSizeModificationOn = false;
-		isoSurfaceThresholdModificationOn = false;
-		ksOn = false;
-		ktOn = false;
-		std::cout << scale[0] << " " << scale[1] << " " << scale[2] << std::endl;
 		break;
 	}
+}
+
+void blendingMenu(int id) 
+{
+	
+	switch(id)
+	{
+	case 0:
+		alphaBlendingOn = true;
+		curvatureBlendingOn = false;
+		distanceFalloffBlendingOn = false;
+		clippingBlendingOn = false;
+		break;
+	case 1:
+		alphaBlendingOn = false;
+		curvatureBlendingOn = !curvatureBlendingOn;
+		break;
+	case 2:
+		alphaBlendingOn = false;
+		distanceFalloffBlendingOn = !distanceFalloffBlendingOn;
+		break;
+	case 3:
+		alphaBlendingOn = false;
+		clippingBlendingOn = !clippingBlendingOn;
+		break;
+	}
+
 }
 
 void otherFunctionsMenu(int id)
@@ -1306,13 +1453,16 @@ void otherFunctionsMenu(int id)
 		if(showCurvatureMap) showDepthMap = false;
 		else showDepthMap = true;
 		break;
+	case 2:
+		showContoursMap = !showContoursMap;
+		break;
 	}
 }
 
 void createMenu()
 {
 
-	GLint volumeRenderingMenuID, thresholdMenuID, transformationMenuID, otherFunctionsMenuID;
+	GLint volumeRenderingMenuID, thresholdMenuID, transformationMenuID, blendingMenuID, otherFunctionsMenuID;
 
 	volumeRenderingMenuID = glutCreateMenu(volumeRenderingMenu);
 		glutAddMenuEntry("Stochastic Jithering [On/Off]", 0);
@@ -1334,20 +1484,35 @@ void createMenu()
 		glutAddMenuEntry("Change Curvature Weight (Ghosted Views)", 5);
 		glutAddMenuEntry("Change Distance Fall Off Weight (Ghosted Views)", 6);
 		glutAddMenuEntry("Change Focus Radius (Ghosted Views)", 7);
+		glutAddMenuEntry("Change Clipping Plane Right X (Ghosted Views)", 8); //inverted (also in specialKeyboard)
+		glutAddMenuEntry("Change Clipping Plane Left X (Ghosted Views)", 9); //inverted (also in specialKeyboard)
+		glutAddMenuEntry("Change Clipping Plane Up Y (Ghosted Views)", 10);
+		glutAddMenuEntry("Change Clipping Plane Down Y (Ghosted Views)", 11);
+		glutAddMenuEntry("Change Clipping Plane Front Z (Ghosted Views)", 12);
+		glutAddMenuEntry("Change Clipping Plane Back Z (Ghosted Views)", 13);
+		glutAddMenuEntry("Change Clipping Distance Fall Off Weight (Ghosted Views)", 14);
 
 	transformationMenuID = glutCreateMenu(transformationMenu);
 		glutAddMenuEntry("Change Translation", 0);
 		glutAddMenuEntry("Change Rotation", 1);
 		glutAddMenuEntry("Change Scale", 2);
 
+	blendingMenuID = glutCreateMenu(blendingMenu);
+		glutAddMenuEntry("Simple Blending [On/Off]", 0);
+		glutAddMenuEntry("Curvature Blending [On/Off]", 1);
+		glutAddMenuEntry("Distance Falloff Blending [On/Off]", 2);
+		glutAddMenuEntry("Clipping-based Blending [On/Off]", 3);
+
 	otherFunctionsMenuID = glutCreateMenu(otherFunctionsMenu);
 		glutAddMenuEntry("Save Model", 0);
 		glutAddMenuEntry("Show/Hide Curvature Map", 1);
+		glutAddMenuEntry("Show/Hide Contours Map", 2);
 
 	glutCreateMenu(mainMenu);
 		glutAddSubMenu("Transformation", transformationMenuID);
 		glutAddSubMenu("Volume Rendering", volumeRenderingMenuID);
 		glutAddSubMenu("Threshold", thresholdMenuID);
+		glutAddSubMenu("Blending Mode", blendingMenuID);
 		glutAddSubMenu("Other Functions", otherFunctionsMenuID);
 
 		glutAttachMenu(GLUT_RIGHT_BUTTON);
@@ -1438,7 +1603,15 @@ void init()
 		vrparams.gradientByForwardDifferences = false;
 		vrparams.NonPolygonalIsoSurface = false;
 		vrparams.isoSurfaceThreshold = 0.1;
-
+		//Inverted because of the view
+		vrparams.clippingPlane = true;
+		vrparams.clippingPlaneLeftX = 0.0;
+		vrparams.clippingPlaneRightX = 1.0;
+		vrparams.clippingPlaneUpY = 1.0;
+		vrparams.clippingPlaneDownY = 0.0;
+		vrparams.clippingPlaneFrontZ = 0.0;
+		vrparams.clippingPlaneBackZ = 1.0;
+		
 		createMenu();
 	
 	}
@@ -1557,6 +1730,7 @@ int main(int argc, char **argv) {
 	initShader("Shaders/VRPreIntegrationRaycasting", 4);
 	initShader("Shaders/VRLocalIlluminationPreIntegrationRaycasting", 5);
 	initShader("Shaders/VRNonPolygonalRaycasting", 6);
+	initShader("Shaders/VRImage", 7);
 	
 	myGLCloudViewer->setProgram(shaderProg[0]);
 	myGLImageViewer->setProgram(shaderProg[1]);

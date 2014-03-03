@@ -99,6 +99,11 @@ void MyGLImageViewer::loadFrameBufferTexture(GLuint *texVBO, int index, int x, i
 
 }
 
+void MyGLImageViewer::loadFrameBufferTexture(int x, int y, int width, int height)
+{
+	glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer);	
+}
+
 void MyGLImageViewer::loadARTexture(const unsigned char *rgbMap, unsigned char *data, GLuint *texVBO, int index, int windowWidth, 
 	int windowHeight) {
 	
@@ -211,7 +216,7 @@ void MyGLImageViewer::drawRGBTexture(GLuint *texVBO, int index, int windowWidth,
 	//	glUseProgram(0);
 }
 
-void MyGLImageViewer::drawRGBTextureForSaliencyMap(GLuint *texVBO, int index, int windowWidth, int windowHeight)
+void MyGLImageViewer::drawRGBTextureOnShader(GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
 
 	glUseProgram(shaderProg);
@@ -273,22 +278,37 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnCurvatureMap);
 	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnDistanceFalloff");
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnDistanceFalloff);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnClipping");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnClipping);
+
 	if(occlusionParams.ARFromVolumeRendering)
 	{
+		
 		if(occlusionParams.ghostViewBasedOnCurvatureMap) {
 			texLoc = glGetUniformLocation(shaderProg, "curvatureMap");
 			glUniform1i(texLoc, 9);
 			texLoc = glGetUniformLocation(shaderProg, "curvatureWeight");
 			glUniform1f(texLoc, occlusionParams.curvatureWeight);
 		}
+
 		if(occlusionParams.ghostViewBasedOnDistanceFalloff) {
 			texLoc = glGetUniformLocation(shaderProg, "distanceFalloffWeight");
 			glUniform1f(texLoc, occlusionParams.distanceFalloffWeight);
 		}
+	
+		if(occlusionParams.ghostViewBasedOnClipping) {
+			texLoc = glGetUniformLocation(shaderProg, "contoursMap");
+			glUniform1i(texLoc, 10);
+			texLoc = glGetUniformLocation(shaderProg, "clippingWeight");
+			glUniform1f(texLoc, occlusionParams.clippingWeight);
+		
+		}
+
 		texLoc = glGetUniformLocation(shaderProg, "focusPoint");
 		glUniform2f(texLoc, occlusionParams.focusPoint[0], occlusionParams.focusPoint[1]);
 		texLoc = glGetUniformLocation(shaderProg, "focusRadius");
 		glUniform1f(texLoc, occlusionParams.focusRadius);
+	
 	}
 
 	glActiveTexture(GL_TEXTURE0);
@@ -304,6 +324,11 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 		if(occlusionParams.ghostViewBasedOnCurvatureMap) {
 			glActiveTexture(GL_TEXTURE9);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.curvatureMapIndex]);
+		}
+
+		if(occlusionParams.ghostViewBasedOnClipping) {
+			glActiveTexture(GL_TEXTURE10);
+			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.contoursMapIndex]);
 		}
 	}
 
@@ -329,6 +354,8 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glActiveTexture(GL_TEXTURE3);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE9);
+	glDisable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE10);
 	glDisable(GL_TEXTURE_2D);
 
 }
@@ -402,6 +429,27 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 			texLoc = glGetUniformLocation(shaderProg, "forwardDifference");
 			glUniform1i(texLoc, 0);
 		}
+
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlane");
+		glUniform1i(texLoc, (int)params.clippingPlane);
+
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneLeftX");
+		glUniform1f(texLoc, params.clippingPlaneLeftX);
+		
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneRightX");
+		glUniform1f(texLoc, params.clippingPlaneRightX);
+
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneUpY");
+		glUniform1f(texLoc, params.clippingPlaneUpY);
+		
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneDownY");
+		glUniform1f(texLoc, params.clippingPlaneDownY);
+		
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneFrontZ");
+		glUniform1f(texLoc, params.clippingPlaneFrontZ);
+		
+		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneBackZ");
+		glUniform1f(texLoc, params.clippingPlaneBackZ);
 
 		texLoc = glGetUniformLocation(shaderProg, "isosurfaceThreshold");
 		glUniform1f(texLoc, params.isoSurfaceThreshold);

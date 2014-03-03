@@ -25,6 +25,14 @@ typedef struct VRParams
 	bool NonPolygonalIsoSurface;
 	float isoSurfaceThreshold;
 	bool gradientByForwardDifferences;
+	//Clipping Planes
+	bool clippingPlane;
+	float clippingPlaneLeftX;
+	float clippingPlaneRightX;
+	float clippingPlaneUpY;
+	float clippingPlaneDownY;
+	float clippingPlaneFrontZ;
+	float clippingPlaneBackZ;
 } VRParams;
 
 #endif
