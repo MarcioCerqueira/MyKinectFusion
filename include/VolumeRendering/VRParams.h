@@ -27,6 +27,7 @@ typedef struct VRParams
 	bool gradientByForwardDifferences;
 	//Clipping Planes
 	bool clippingPlane;
+	bool clippingOcclusion;
 	float clippingPlaneLeftX;
 	float clippingPlaneRightX;
 	float clippingPlaneUpY;

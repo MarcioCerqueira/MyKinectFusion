@@ -280,6 +280,8 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnDistanceFalloff);
 	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnClipping");
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnClipping);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMask");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMask);
 
 	if(occlusionParams.ARFromVolumeRendering)
 	{
@@ -301,7 +303,15 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glUniform1i(texLoc, 10);
 			texLoc = glGetUniformLocation(shaderProg, "clippingWeight");
 			glUniform1f(texLoc, occlusionParams.clippingWeight);
-		
+		}
+
+		if(occlusionParams.ghostViewBasedOnSubtractionMask) {
+			texLoc = glGetUniformLocation(shaderProg, "backgroundMap");
+			glUniform1i(texLoc, 11);
+			texLoc = glGetUniformLocation(shaderProg, "subtractionMap");
+			glUniform1i(texLoc, 12);
+			texLoc = glGetUniformLocation(shaderProg, "faceMapDilated");
+			glUniform1i(texLoc, 13);
 		}
 
 		texLoc = glGetUniformLocation(shaderProg, "focusPoint");
@@ -330,6 +340,16 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glActiveTexture(GL_TEXTURE10);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.contoursMapIndex]);
 		}
+
+		if(occlusionParams.ghostViewBasedOnSubtractionMask) {
+			glActiveTexture(GL_TEXTURE11);
+			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.backgroundMapIndex]);
+			glActiveTexture(GL_TEXTURE12);
+			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.subtractionMapIndex]);
+			glActiveTexture(GL_TEXTURE13);
+			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.faceMapIndex]);
+		}
+
 	}
 
 	glBegin(GL_QUADS);
@@ -356,6 +376,12 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glActiveTexture(GL_TEXTURE9);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE10);
+	glDisable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE11);
+	glDisable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE12);
+	glDisable(GL_TEXTURE_2D);
+	glActiveTexture(GL_TEXTURE13);
 	glDisable(GL_TEXTURE_2D);
 
 }
@@ -432,6 +458,9 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 
 		texLoc = glGetUniformLocation(shaderProg, "clippingPlane");
 		glUniform1i(texLoc, (int)params.clippingPlane);
+
+		texLoc = glGetUniformLocation(shaderProg, "clippingOcclusion");
+		glUniform1i(texLoc, (int)params.clippingOcclusion);
 
 		texLoc = glGetUniformLocation(shaderProg, "clippingPlaneLeftX");
 		glUniform1f(texLoc, params.clippingPlaneLeftX);
