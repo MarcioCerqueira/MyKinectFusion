@@ -12,7 +12,6 @@ typedef struct AROcclusionParams
 	int contoursMapIndex; //ghostViewBasedOnClipping
 	int backgroundMapIndex; //ghostViewBasedOnSubtractionMask
 	int subtractionMapIndex; //ghostViewBasedOnSubtractionMask
-	int faceMapIndex; //ghostViewBasedOnSubtractionMask
 	int windowWidth;
 	int windowHeight;
 	bool ARPolygonal;
@@ -22,10 +21,12 @@ typedef struct AROcclusionParams
 	bool ghostViewBasedOnCurvatureMap;
 	bool ghostViewBasedOnDistanceFalloff;
 	bool ghostViewBasedOnClipping;
-	bool ghostViewBasedOnSubtractionMask;
+	bool ghostViewBasedOnSubtractionMaskCase1;
+	bool ghostViewBasedOnSubtractionMaskCase2;
 	float curvatureWeight;
 	float distanceFalloffWeight;
 	float clippingWeight;
+	float grayLevelWeight;
 	float focusPoint[2];
 	float focusRadius;
 } AROcclusionParams;

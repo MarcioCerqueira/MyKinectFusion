@@ -11,6 +11,23 @@ TsdfVolume::TsdfVolume(Eigen::Vector3i& volumeSize) {
 	volumeSize_(1) = volumeSize(1);
 	volumeSize_(2) = volumeSize(2);
 	volume_.create (device::VOLUME_Y * device::VOLUME_Z, device::VOLUME_X);
+	cudaMalloc((void**)&clippingPlane.clippedRegion, 640 * 480 * sizeof(unsigned char));
+
+	hasTSDFVisualization_ = false;
+	hasClippingPlane = false;
+	clippingPlane.leftX = 0;
+	clippingPlane.rightX = device::VOLUME_X;
+	clippingPlane.downY = device::VOLUME_Y;
+	clippingPlane.upY = 0;
+	clippingPlane.frontZ = 0;
+	clippingPlane.backZ = device::VOLUME_Z;
+	velClipping = 5;
+
+}
+
+TsdfVolume::~TsdfVolume() {
+	
+	cudaFree(clippingPlane.clippedRegion);
 
 }
 
@@ -50,8 +67,13 @@ void TsdfVolume::raycast(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& 
 		device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
 			globalPreviousPointCloud->getNormalMaps()[0], error_);
 
-	} else {
+	} else if(hasClippingPlane) {
 	
+		device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
+			globalPreviousPointCloud->getNormalMaps()[0], clippingPlane);
+
+	} else {
+
 		device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
 			globalPreviousPointCloud->getNormalMaps()[0]);
 
@@ -63,6 +85,23 @@ void TsdfVolume::raycast(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& 
       device::resizeNMap (globalPreviousPointCloud->getNormalMaps()[i-1], globalPreviousPointCloud->getNormalMaps()[i]);
 
     }
+
+}
+
+void TsdfVolume::raycastBasedOnClipping(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& tvecs, device::Intr& intrinsics, float trancDist, 
+	MyPointCloud *globalPreviousPointCloud, int globalTime) {
+
+	Matrix3frm Rcurr = rmats[globalTime - 1]; //  [Ri|ti] - pos of camera, i.e.
+    Vector3f tcurr = tvecs[globalTime - 1]; //  transform from camera to global coo space for (i-1)th camera pose
+
+	device::Mat33& device_Rcurr = device_cast<device::Mat33> (Rcurr);
+    float3& device_tcurr = device_cast<float3>(tcurr);
+
+	float3 device_volume_size = device_cast<float3>(volumeSize_);
+
+	device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
+		globalPreviousPointCloud->getNormalMaps()[0], clippingPlane);
+
 }
 
 DeviceArray<PointXYZ> TsdfVolume::fetchCloud(DeviceArray<PointXYZ>& cloud_buffer) {

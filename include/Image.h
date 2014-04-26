@@ -64,7 +64,7 @@ private:
 	std::vector<KinfuTracker::RGB> sourceRgbData;
 	KinfuTracker::View viewDevice;
 	std::vector<KinfuTracker::RGB> viewHost;
-	
+		
 };
 
 #endif

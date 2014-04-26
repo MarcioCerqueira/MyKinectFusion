@@ -1,10 +1,11 @@
 C:\Users\Marcio\Downloads\Brain\
+C:\MVSProjects\TCCKinFu\x64\Release\TransferFunctions\Generic.mtf
 1
 99
 tif
 1
 1
-2
+1
 0
 1
 2

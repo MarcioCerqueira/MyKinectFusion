@@ -1,4 +1,5 @@
 C:\MVSProjects\pvm2pgm\x64\Debug\VisMale\
+C:\MVSProjects\TCCKinFu\x64\Release\TransferFunctions\VisMaleSkin.mtf
 1
 256
 pgm

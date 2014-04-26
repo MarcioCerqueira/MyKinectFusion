@@ -6,6 +6,7 @@ uniform sampler2D frontFrameBuffer;
 uniform sampler2D backFrameBuffer;
 uniform float stepSize;
 uniform int clippingPlane;
+uniform int inverseClipping;
 uniform int clippingOcclusion;
 uniform float clippingPlaneLeftX;
 uniform float clippingPlaneRightX;
@@ -172,42 +173,63 @@ void main (void)
 	{
 		
 		maxOpacity = texture3D(minMaxOctree, position);
-		if(clippingPlane) clip = checkClippingPlane(position);
+		
+		if(clippingPlane) { 
+		
+			clip = checkClippingPlane(position);
+			if(inverseClipping) clip = !clip;
+			
+			if(clippingOcclusion) {
 
-		if(!firstHit) {
-			value = texture3D(volume, position);
-			if(value.a > 0.05) {
-				if(clippingOcclusion == 1 && clip) return;
-				else firstHit = true;
+				if(!firstHit) {
+					value = texture3D(volume, position);
+					if(value.a > 0.1) {
+						if(clip) return;
+						else firstHit = true;
+					}
+				}
+
 			}
+
 		}
 
-		if(maxOpacity.g > 0.0 && !clip) {
+		if(maxOpacity.g > 0.0) {
+			
+			if(!clip) {
 		
-			//Data access to scalar value in 3D volume texture
-			value = texture3D(volume, position);
-			//Rechecking the "solidity" of the voxel by jumping around at half-step intervals
-			vec3 s = vec3(-stepSize * 0.5, -stepSize * 0.5, -stepSize * 0.5);
-			position = position + direction * s;
-			value = texture3D(volume, position);
-			if(value.a > 0.1) s *= 0.5;
-			else	s *= -0.5;
-			position = position + direction * s;
-			value = texture3D(volume, position);
+				//Data access to scalar value in 3D volume texture
+				value = texture3D(volume, position);
 
-			scalar.y = value.a;
-			src = texture2D(transferFunction, scalar.xy);
-			src = computeIllumination(src, position, scalar.x);
-			//Front-to-back compositing
-			if(src.a > 0.1)
-				dst = (1.0 - dst.a) * src + dst;
+				scalar.y = value.a;
+				src = texture2D(transferFunction, scalar.xy);
+				src = computeIllumination(src, position, scalar.x);
+				//Front-to-back compositing
+				if(src.a > 0.1)
+					dst = (1.0 - dst.a) * src + dst;
 		
+				//Save previous scalar value
+				scalar.x = src.a;
+
+			}
+
 			//Advance ray position along ray direction
-			position = position + direction * stepSize;
-			accLength += dirLength * stepSize;
-			//Save previous scalar value
-			scalar.x = src.a;
-
+			if(clippingOcclusion) {
+			
+				if(firstHit) {
+					position = position + direction * stepSize;
+					accLength += dirLength * stepSize;
+				} else {
+					position = position + direction * 0.008;
+					accLength += dirLength * 0.008;
+				}
+			
+			} else {
+			
+				position = position + direction * stepSize;
+				accLength += dirLength * stepSize;
+			
+			}
+			
 		} else {
 		
 			position = position + direction * maxStepSize;

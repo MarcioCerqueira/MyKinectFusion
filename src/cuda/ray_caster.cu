@@ -83,6 +83,9 @@ namespace pcl
 	  mutable PtrStep<float> error;
 	  bool hasImageError;
 
+	  ClippingPlane clippingPlane;
+	  bool hasClipping;
+
       __device__ __forceinline__ float3
       get_ray_next (int x, int y) const
       {
@@ -157,107 +160,7 @@ namespace pcl
                     readTsdf (g.x + 1, g.y + 1, g.z + 1) * a * b * c;
         return res;
       }
-#if 0
-      __device__ __forceinline__ void
-      operator () () const
-      {
-        int x = threadIdx.x + blockIdx.x * CTA_SIZE_X;
-        int y = threadIdx.y + blockIdx.y * CTA_SIZE_Y;
 
-        if (x >= cols || y >= rows)
-          return;
-
-        vmap.ptr (y)[x] = numeric_limits<float>::quiet_NaN ();
-        nmap.ptr (y)[x] = numeric_limits<float>::quiet_NaN ();
-
-        float3 ray_start = tcurr;
-        float3 ray_next = Rcurr * get_ray_next (x, y) + tcurr;
-
-        float3 ray_dir = normalized (ray_next - ray_start);
-
-        //ensure that it isn't a degenerate case
-        ray_dir.x = (ray_dir.x == 0.f) ? 1e-15 : ray_dir.x;
-        ray_dir.y = (ray_dir.y == 0.f) ? 1e-15 : ray_dir.y;
-        ray_dir.z = (ray_dir.z == 0.f) ? 1e-15 : ray_dir.z;
-
-        // computer time when entry and exit volume
-        float time_start_volume = getMinTime (volume_size, ray_start, ray_dir);
-        float time_exit_volume = getMaxTime (volume_size, ray_start, ray_dir);
-
-        const float min_dist = 0.f;         //in mm
-        time_start_volume = fmax (time_start_volume, min_dist);
-        if (time_start_volume >= time_exit_volume)
-          return;
-
-        int time_curr = time_start_volume;
-        int3 g = getVoxel (ray_start + ray_dir * time_curr);
-        g.x = max (0, min (g.x, VOLUME_X - 1));
-        g.y = max (0, min (g.y, VOLUME_Y - 1));
-        g.z = max (0, min (g.z, VOLUME_Z - 1));
-
-        float tsdf = readTsdf (g.x, g.y, g.z);
-
-        //infinite loop guard
-        const float max_time = 3 * (volume_size.x + volume_size.y + volume_size.z);
-
-        for (; time_curr < max_time; time_curr += time_step)
-        {
-          float tsdf_prev = tsdf;
-
-          int3 g = getVoxel (  ray_start + ray_dir * (time_curr + time_step)  );
-          if (!checkInds (g))
-            break;
-
-          tsdf = readTsdf (g.x, g.y, g.z);
-
-          if (tsdf_prev < 0.f && tsdf > 0.f)
-            break;
-
-          if (tsdf_prev > 0.f && tsdf < 0.f)           //zero crossing
-          {
-            float Ftdt = interpolateTrilineary (ray_start, ray_dir, time_curr + time_step);
-            if (isnan (Ftdt))
-              break;
-
-            float Ft = interpolateTrilineary (ray_start, ray_dir, time_curr);
-            if (isnan (Ft))
-              break;
-
-            float Ts = time_curr - time_step * Ft / (Ftdt - Ft);
-
-            float3 vetex_found = ray_start + ray_dir * Ts;
-
-            vmap.ptr (y       )[x] = vetex_found.x;
-            vmap.ptr (y + rows)[x] = vetex_found.y;
-            vmap.ptr (y + 2 * rows)[x] = vetex_found.z;
-
-            int3 g = getVoxel ( ray_start + ray_dir * time_curr );
-            //if (g.x != 0 && g.y != 0 && g.z != 0 && g.x != VOLUME_X - 1 && g.y != VOLUME_Y - 1 && g.z != VOLUME_Z - 1)
-            {
-              float3 normal;
-
-              //extract gradient
-              normal.x = readTsdf (g.x + 1, g.y, g.z) - readTsdf (g.x - 1, g.y, g.z);
-              normal.y = readTsdf (g.x, g.y + 1, g.z) - readTsdf (g.x, g.y - 1, g.z);
-              normal.z = readTsdf (g.x, g.y, g.z + 1) - readTsdf (g.x, g.y, g.z - 1);
-
-              //normalize if volume isn't cubic
-              normal.x /= cell_size.x;
-              normal.y /= cell_size.y;
-              normal.z /= cell_size.z;
-
-              normal = normalized (normal);
-
-              nmap.ptr (y       )[x] = normal.x;
-              nmap.ptr (y + rows)[x] = normal.y;
-              nmap.ptr (y + 2 * rows)[x] = normal.z;
-            }
-            break;
-          }
-        }          /* for(;;)  */
-      }
-
-#else
       __device__ __forceinline__ void
       operator () () const
       {
@@ -266,6 +169,8 @@ namespace pcl
 
 		if(hasImageError)
 			error.ptr(y)[x] = -1;
+		if(hasClipping)
+			clippingPlane.clippedRegion[y * cols + x] = 0;
 
         if (x >= cols || y >= rows)
           return;
@@ -322,6 +227,11 @@ namespace pcl
 		    if(hasImageError)
 				error.ptr(y)[x] = tsdf_prev - tsdf;
 
+			if(hasClipping) 
+			  if(!(g.x >= clippingPlane.leftX && g.x <= clippingPlane.rightX && g.y >= clippingPlane.upY && g.y <= clippingPlane.downY 
+			  && g.z >= clippingPlane.frontZ && g.z <= clippingPlane.backZ))
+				clippingPlane.clippedRegion[y * cols + x] = 255;
+			
             float Ftdt = interpolateTrilineary (ray_start, ray_dir, time_curr + time_step);
             if (isnan (Ftdt))
               break;
@@ -387,13 +297,13 @@ namespace pcl
         }          /* for(;;)  */
       }
 
-#endif
     };
 
     __global__ void
     rayCastKernel (const RayCaster rc) {
       rc ();
     }
+
   }
 }
 
@@ -427,6 +337,7 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
   rc.nmap = nmap;
 
   rc.hasImageError = false;
+  rc.hasClipping = false;
 
   dim3 block (RayCaster::CTA_SIZE_X, RayCaster::CTA_SIZE_Y);
   dim3 grid (divUp (rc.cols, block.x), divUp (rc.rows, block.y));
@@ -466,6 +377,7 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
 
   rc.error = error;
   rc.hasImageError = true;
+  rc.hasClipping = false;
 
   dim3 block (RayCaster::CTA_SIZE_X, RayCaster::CTA_SIZE_Y);
   dim3 grid (divUp (rc.cols, block.x), divUp (rc.rows, block.y));
@@ -473,4 +385,45 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
   rayCastKernel << < grid, block >> > (rc);
   cudaSafeCall (cudaGetLastError ());
   //cudaSafeCall(cudaDeviceSynchronize());
+
+}
+
+void
+pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr, 
+                      float tranc_dist, const float3& volume_size,
+                      const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, 
+					  ClippingPlane& clipPlane)
+{
+  RayCaster rc;
+
+  rc.Rcurr = Rcurr;
+  rc.tcurr = tcurr;
+
+  rc.time_step = tranc_dist * 0.6f;
+
+  rc.volume_size = volume_size;
+
+  rc.cell_size.x = volume_size.x / VOLUME_X;
+  rc.cell_size.y = volume_size.y / VOLUME_Y;
+  rc.cell_size.z = volume_size.z / VOLUME_Z;
+
+  rc.cols = vmap.cols ();
+  rc.rows = vmap.rows () / 3;
+
+  rc.intr = intr;
+
+  rc.volume = volume;
+  rc.vmap = vmap;
+  rc.nmap = nmap;
+
+  rc.hasImageError = false;
+  rc.hasClipping = true;
+  rc.clippingPlane = clipPlane;
+
+  dim3 block (RayCaster::CTA_SIZE_X, RayCaster::CTA_SIZE_Y);
+  dim3 grid (divUp (rc.cols, block.x), divUp (rc.rows, block.y));
+
+  rayCastKernel << < grid, block >> > (rc);
+  cudaSafeCall (cudaGetLastError ());
+  
 }

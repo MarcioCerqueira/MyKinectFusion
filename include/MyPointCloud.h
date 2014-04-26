@@ -67,6 +67,6 @@ private:
 	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> cloudHost_;
 	DeviceArray2D<pcl::PointXYZ> normalsDevice_;
 	std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> normalsHost_;
-	
+	float* deviceCloud;
 };
 #endif

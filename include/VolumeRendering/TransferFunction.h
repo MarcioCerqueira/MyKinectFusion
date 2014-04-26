@@ -3,13 +3,16 @@
 
 #include <malloc.h>
 #include <math.h>
+#include <string>
+#include <fstream>
+#include <iostream>
 
 class TransferFunction
 {
 public:
 	TransferFunction();
 	~TransferFunction();
-	void load();
+	void load(char *transferFunctionPath);
 	int clamp(int x, int a, int b);
 	void computePreIntegrationTable();
 

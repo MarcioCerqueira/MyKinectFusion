@@ -42,7 +42,10 @@ void Image::applyBilateralFilter() {
 
 void Image::applyDepthTruncation(float truncValue) {
 
+	int cols;
 	device::truncateDepth(depths_curr_[0], truncValue);
+	depths_curr_[0].download(sourceDepthData, cols);
+	depthMap_.data = &sourceDepthData[0];
 
 }
 

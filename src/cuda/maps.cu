@@ -573,6 +573,29 @@ namespace pcl
       output.ptr (y)[x] = t;
     }
 
+	__global__ void
+    convertFloatMapKernel (int rows, int cols, const PtrStep<float> map, float* output)
+    {
+      int x = threadIdx.x + blockIdx.x * blockDim.x;
+      int y = threadIdx.y + blockIdx.y * blockDim.y;
+	  int idx = y * cols + x;
+
+      if (x >= cols || y >= rows)
+        return;
+
+      const float qnan = numeric_limits<float>::quiet_NaN ();
+
+      output[idx * 3 + 0] = map.ptr (y)[x];
+      if (!isnan (output[idx * 3 + 0]))
+      {
+        output[idx * 3 + 1] = map.ptr (y + rows)[x];
+        output[idx * 3 + 2] = map.ptr (y + 2 * rows)[x];
+      }
+      else
+        output[idx * 3 + 1] = output[idx * 3 + 2] = qnan;
+
+    }
+
 	template<typename T>
     __global__ void
     convertErrorMapKernel (int rows, int cols, const PtrStep<float> map, PtrStep<T> output)
@@ -614,6 +637,20 @@ pcl::device::convert (const MapArr& vmap, DeviceArray2D<T>& output)
   dim3 grid (divUp (cols, block.x), divUp (rows, block.y));
 
   convertMapKernel<T><< < grid, block >> > (rows, cols, vmap, output);
+  cudaSafeCall ( cudaGetLastError () );
+  cudaSafeCall (cudaDeviceSynchronize ());
+}
+
+void
+pcl::device::convert (const MapArr& vmap, float* output)
+{
+  int cols = vmap.cols ();
+  int rows = vmap.rows () / 3;
+
+  dim3 block (32, 8);
+  dim3 grid (divUp (cols, block.x), divUp (rows, block.y));
+
+  convertFloatMapKernel<< < grid, block >> > (rows, cols, vmap, output);
   cudaSafeCall ( cudaGetLastError () );
   cudaSafeCall (cudaDeviceSynchronize ());
 }

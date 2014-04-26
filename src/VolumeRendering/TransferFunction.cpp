@@ -10,32 +10,37 @@ TransferFunction::~TransferFunction() {
 	delete [] preIntegrationTable;
 }
 
-void TransferFunction::load() {
-	
-	float opacity;
-	for(int i = 0; i < 256; i++) {
-		if(i > 40 && i <= 60) {
-			opacity = (float)(i/255.f);
-			transferFunction[i * 4 + 0] = 165 * opacity;
-			transferFunction[i * 4 + 1] = 57 * opacity;
-			transferFunction[i * 4 + 2] = 0;
-			transferFunction[i * 4 + 3] = i;
-		} else if((i > 20 && i <= 40) || (i > 60 && i < 150)) {
-			opacity = (float)(i/255.f);
-			transferFunction[i * 4 + 0] = 239 * opacity;
-			transferFunction[i * 4 + 1] = 208 * opacity;
-			transferFunction[i * 4 + 2] = 207 * opacity;
-			transferFunction[i * 4 + 3] = i;
-		} else {
-			opacity = (float)(i/255.f);
-			transferFunction[i * 4 + 0] = 0;
-			transferFunction[i * 4 + 1] = 0;
-			transferFunction[i * 4 + 2] = 0;
-			transferFunction[i * 4 + 3] = i;
-		}
-	}
-	
+void TransferFunction::load(char *transferFunctionPath) {
 
+	std::fstream file(transferFunctionPath);
+	std::string line;
+		
+	if(file.is_open()) {
+	
+		float opacity;
+		int i, r, g, b, a;
+		while(!file.eof()) {
+			std::getline(file, line);
+			i = atoi(line.c_str()); 
+			std::getline(file, line);
+			r = atoi(line.c_str());
+			std::getline(file, line);
+			g = atoi(line.c_str());
+			std::getline(file, line);
+			b = atoi(line.c_str());
+			std::getline(file, line);
+			a = atoi(line.c_str());
+			opacity = (float)(a/255.0);
+			transferFunction[i * 4 + 0] = r * opacity;
+			transferFunction[i * 4 + 1] = g * opacity;
+			transferFunction[i * 4 + 2] = b * opacity;
+			transferFunction[i * 4 + 3] = a;
+		}
+		file.close();
+	
+	} else {
+		std::cout << "Transfer Function could not be opened" << std::endl;
+	}
 }
 
 int TransferFunction::clamp(int x, int a, int b) {

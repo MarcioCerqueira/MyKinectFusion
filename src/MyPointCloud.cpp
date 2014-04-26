@@ -22,6 +22,7 @@ MyPointCloud::MyPointCloud(int cols, int rows) {
 	}
 
 	cudaMalloc((void**)&deviceCurvatureMap, rows * cols * sizeof(float));
+	cudaMalloc((void**)&deviceCloud, rows * cols * 3 * sizeof(float));
 
 	rows_ = rows;
 	cols_ = cols;
@@ -42,6 +43,7 @@ MyPointCloud::MyPointCloud(int cols, int rows) {
 MyPointCloud::~MyPointCloud() {
 	
 	cudaFree(deviceCurvatureMap);
+	cudaFree(deviceCloud);
 
 }
 
@@ -311,17 +313,8 @@ void MyPointCloud::getDepthMap(unsigned short *depthMap) {
 
 void MyPointCloud::getHostPointCloud(float *pointCloud) {
 	
-	int temp;
-	
-	getLastFrameCloud(cloudDevice_);
-	cloudDevice_.download (cloudHost_, temp);
-	
-	for(int point = 0; point < (640 * 480); point++)
-	{
-		pointCloud[point * 3 + 0] = cloudHost_[point].x;
-		pointCloud[point * 3 + 1] = cloudHost_[point].y;
-		pointCloud[point * 3 + 2] = cloudHost_[point].z;
-	}
+	device::convert (vmaps_[0], deviceCloud);
+	cudaMemcpy(pointCloud, deviceCloud, 640 * 480 * 3 * sizeof(float), cudaMemcpyDeviceToHost);
 
 }
 

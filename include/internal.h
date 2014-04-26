@@ -71,6 +71,20 @@ namespace pcl
         return (Intr (fx / div, fy / div, cx / div, cy / div));
       }
     };
+	
+	/** \brief Clipping plane
+    */
+
+	struct ClippingPlane
+	{
+	  int leftX;
+	  int rightX;
+	  int upY;
+	  int downY;
+	  int frontZ;
+	  int backZ;
+	  mutable unsigned char* clippedRegion;
+	};
 
     /** \brief 3x3 Matrix for device code
       */ 
@@ -343,7 +357,11 @@ namespace pcl
 	void 
     raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr, float tranc_dist, const float3& volume_size, 
              const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, DeviceArray2D<float>& error);
-    /** \brief Renders 3D image of the scene
+
+	void 
+    raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr, float tranc_dist, const float3& volume_size, 
+             const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, ClippingPlane& clipPlane);
+	/** \brief Renders 3D image of the scene
       * \param[in] vmap vetex map
       * \param[in] nmap normals map
       * \param[in] light poase of light source
@@ -424,6 +442,8 @@ namespace pcl
     template<typename T> 
     void 
     convert (const MapArr& vmap, DeviceArray2D<T>& output);
+
+	void convert (const MapArr& vmap, float* output);
 
 	template<typename T> 
     void 

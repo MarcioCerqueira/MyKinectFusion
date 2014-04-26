@@ -3,6 +3,8 @@
 
 typedef struct VRParams
 {
+	//transfer function
+	char transferFunctionPath[200];
 	//step size for raycasting
 	float stepSize;
 	//early ray termination threshold
@@ -27,6 +29,7 @@ typedef struct VRParams
 	bool gradientByForwardDifferences;
 	//Clipping Planes
 	bool clippingPlane;
+	bool inverseClipping;
 	bool clippingOcclusion;
 	float clippingPlaneLeftX;
 	float clippingPlaneRightX;

@@ -101,7 +101,9 @@ void MyGLImageViewer::loadFrameBufferTexture(GLuint *texVBO, int index, int x, i
 
 void MyGLImageViewer::loadFrameBufferTexture(int x, int y, int width, int height)
 {
+
 	glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, frameBuffer);	
+
 }
 
 void MyGLImageViewer::loadARTexture(const unsigned char *rgbMap, unsigned char *data, GLuint *texVBO, int index, int windowWidth, 
@@ -280,8 +282,10 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnDistanceFalloff);
 	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnClipping");
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnClipping);
-	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMask");
-	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMask);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMaskCase1");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMaskCase1);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMaskCase2");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMaskCase2);
 
 	if(occlusionParams.ARFromVolumeRendering)
 	{
@@ -305,13 +309,15 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glUniform1f(texLoc, occlusionParams.clippingWeight);
 		}
 
-		if(occlusionParams.ghostViewBasedOnSubtractionMask) {
+		if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1 || occlusionParams.ghostViewBasedOnSubtractionMaskCase2) {
 			texLoc = glGetUniformLocation(shaderProg, "backgroundMap");
 			glUniform1i(texLoc, 11);
 			texLoc = glGetUniformLocation(shaderProg, "subtractionMap");
 			glUniform1i(texLoc, 12);
-			texLoc = glGetUniformLocation(shaderProg, "faceMapDilated");
-			glUniform1i(texLoc, 13);
+			if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1) {
+				texLoc = glGetUniformLocation(shaderProg, "grayLevelWeight");
+				glUniform1f(texLoc, occlusionParams.grayLevelWeight);
+			}
 		}
 
 		texLoc = glGetUniformLocation(shaderProg, "focusPoint");
@@ -341,13 +347,11 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.contoursMapIndex]);
 		}
 
-		if(occlusionParams.ghostViewBasedOnSubtractionMask) {
+		if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1 || occlusionParams.ghostViewBasedOnSubtractionMaskCase2) {
 			glActiveTexture(GL_TEXTURE11);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.backgroundMapIndex]);
 			glActiveTexture(GL_TEXTURE12);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.subtractionMapIndex]);
-			glActiveTexture(GL_TEXTURE13);
-			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.faceMapIndex]);
 		}
 
 	}
@@ -380,8 +384,6 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glActiveTexture(GL_TEXTURE11);
 	glDisable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE12);
-	glDisable(GL_TEXTURE_2D);
-	glActiveTexture(GL_TEXTURE13);
 	glDisable(GL_TEXTURE_2D);
 
 }
@@ -458,6 +460,9 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 
 		texLoc = glGetUniformLocation(shaderProg, "clippingPlane");
 		glUniform1i(texLoc, (int)params.clippingPlane);
+
+		texLoc = glGetUniformLocation(shaderProg, "inverseClipping");
+		glUniform1i(texLoc, (int)params.inverseClipping);
 
 		texLoc = glGetUniformLocation(shaderProg, "clippingOcclusion");
 		glUniform1i(texLoc, (int)params.clippingOcclusion);

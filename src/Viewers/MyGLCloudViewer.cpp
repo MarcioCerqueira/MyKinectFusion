@@ -474,5 +474,5 @@ void MyGLCloudViewer::updateModelViewMatrix(ModelViewParams modelViewParams)
 		glRotatef(modelViewParams.headEulerAngles(rotationZ), 0, 0, 1);
 		glTranslatef(modelViewParams.headCenter(0), modelViewParams.headCenter(1), modelViewParams.headCenter(2));
 	}
-
+	
 }

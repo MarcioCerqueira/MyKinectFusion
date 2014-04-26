@@ -1,6 +1,5 @@
 uniform sampler3D volume;
 uniform sampler3D minMaxOctree;
-uniform sampler2D transferFunction;
 uniform sampler2D noise;
 uniform sampler2D frontFrameBuffer;
 uniform sampler2D backFrameBuffer;
@@ -78,9 +77,8 @@ bool checkClippingPlane(vec3 position)
 void main (void)  
 {
 
-	vec4 value;
-	vec2 scalar = vec2(0, 0);
-	vec4 src = vec4(0, 0, 0, 0);
+	vec4 value = vec4(0, 0, 0, 0);
+	float scalar;
 	vec4 rayStart = texture2D(frontFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
 	vec4 rayEnd = texture2D(backFrameBuffer, vec2(gl_FragCoord.x/float(windowWidth), gl_FragCoord.y/float(windowHeight)));
 	if(rayStart == rayEnd)
@@ -96,8 +94,7 @@ void main (void)
 		position = position + direction * texture2D(noise, gl_FragCoord.xy / 256.0).x/16.0;
 	float dirLength = length(direction);
 	//Loop for ray traversal
-	float maxStepSize = 0.04;
-	//float maxStepSize = 4 * stepSize;
+	float maxStepSize = 0.04; //2.f/50.f
 	float accLength = 0.0;
 	vec4 maxOpacity;
 	bool clip = false;
@@ -105,9 +102,9 @@ void main (void)
 
 	for(int i = 0; i < 200; i++) //Some large number
 	{
-
+		
 		maxOpacity = texture3D(minMaxOctree, position);
-
+		
 		if(clippingPlane) { 
 		
 			clip = checkClippingPlane(position);
@@ -117,9 +114,11 @@ void main (void)
 
 				if(!firstHit) {
 					value = texture3D(volume, position);
-					if(value.a > 0.1) {
+					if(value.a > 0.075) {
 						if(clip) return;
-						else firstHit = true;
+						else {
+							firstHit = true;
+						}
 					}
 				}
 
@@ -128,27 +127,21 @@ void main (void)
 		}
 
 		if(maxOpacity.g > 0.0) {
-			
+
 			if(!clip) {
-		
+
 				//Data access to scalar value in 3D volume texture
 				if(triCubicInterpolation == 1) {
 					value = efficientTriCubicInterpolation(volume, position);
 				} else {
 					value = texture3D(volume, position);
 				}
-
-				scalar.y = value.a;
-				//Lookup in pre-integration table
-				src = texture2D(transferFunction, scalar.xy);
-				//Front-to-back compositing
+				
 				if(MIP == 0) {
-					if(scalar.y > 0.1)
-						dst = (1.0 - dst.a) * src + dst;
+					if(value.a > 0.1)
+						dst = (1.0 - dst.a) * value + dst;
 				} else
-					dst = max(dst, src);
-				//Save previous scalar value
-				scalar.x = scalar.y;
+					dst = max(dst, value);
 				
 			}
 
@@ -169,24 +162,28 @@ void main (void)
 				accLength += dirLength * stepSize;
 			
 			}
-			
-		} else {
 
+		} else {
+			
 			position = position + direction * maxStepSize;
 			accLength += dirLength * maxStepSize;
 		
 		}
 		
 		//Additional termination condition for early ray termination
-		if(dst.a > earlyRayTerminationThreshold)
-			break;
+		//if(dst.a > earlyRayTerminationThreshold)
+			//break;
 		
 		//Ray termination: Test if outside volume...
 		if(accLength > len)
 			break;
-			
+
 	}
 
-	gl_FragColor = dst;
-
+	float grayLevel = (dst.r + dst.g + dst.b)/3;
+	if(grayLevel > 0.1)
+		gl_FragColor = vec4(1, 1, 1, 1);
+	else
+		gl_FragColor = vec4(0, 0, 0, 0);
+	
 }
