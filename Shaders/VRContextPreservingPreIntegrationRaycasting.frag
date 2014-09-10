@@ -107,23 +107,22 @@ vec4 computeIllumination(vec4 scalar, vec3 position, float prevOpacity)
 			alpha1.z = texture2D(transferFunction, vec2(sample1.z, sample1.z)).a;
 		}
 		//central difference and normalization
-		//for(int i = 0; i < 1; i++) {
-			vec3 N;
-			if(forwardDifference == 1)
-				N = normalize(vec3(scalar) - alpha2);
-			else
-				N = normalize(alpha2 - alpha1);
-			vec3 L = normalize(gl_LightSource[0].position.xyz - v); 
-			vec3 V = normalize(-v);
-			scalar.rgb += BlinnPhongShading(L, N, V).rgb;
-			//float sp = BlinnPhongShadingIntensity(L, N, V);
-			float distEye = 1.0 - length(position + v);
-			float y = distEye * (1.0 - prevOpacity);
-			float a = kt;
-			float b = ks;
-			float x = length(N);
-			scalar.a *= (x * (b + a * y - a * b * y))/(a * y + b * (a * x * y));
-		//}
+		
+		vec3 N;
+		if(forwardDifference == 1)
+			N = normalize(vec3(scalar) - alpha2);
+		else
+			N = normalize(alpha2 - alpha1);
+		vec3 L = normalize(gl_LightSource[0].position.xyz - v); 
+		vec3 V = normalize(-v);
+		scalar.rgb += BlinnPhongShading(L, N, V).rgb;
+		float sp = BlinnPhongShadingIntensity(L, N, V);
+		float distEye = 1.0 - length(position + v);
+		float y = distEye * (1.0 - prevOpacity);
+		float a = kt;
+		float b = ks;
+		float x = length(N);
+		scalar.a *= (x * (b + a * y - a * b * y))/(a * y + b * (x - a * x * y));
 	}
 
 	return scalar;

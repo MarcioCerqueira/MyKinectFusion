@@ -162,6 +162,39 @@ void MyGLImageViewer::load3DTexture(unsigned char *data, GLuint *texVBO, int ind
 	glBindTexture(GL_TEXTURE_3D, 0);
 }
 
+void MyGLImageViewer::loadSHCoeffs(GLuint shaderProg, HDRParams params) {
+
+	GLuint texLoc = glGetUniformLocation(shaderProg, "L00");
+	glUniform3f(texLoc, params.SHCoeffs[0 * 3 + 0], params.SHCoeffs[0 * 3 + 1], params.SHCoeffs[0 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L1m1");
+	glUniform3f(texLoc, params.SHCoeffs[1 * 3 + 0], params.SHCoeffs[1 * 3 + 1], params.SHCoeffs[1 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L10");
+	glUniform3f(texLoc, params.SHCoeffs[2 * 3 + 0], params.SHCoeffs[2 * 3 + 1], params.SHCoeffs[2 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L11");
+	glUniform3f(texLoc, params.SHCoeffs[3 * 3 + 0], params.SHCoeffs[3 * 3 + 1], params.SHCoeffs[3 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L2m2");
+	glUniform3f(texLoc, params.SHCoeffs[4 * 3 + 0], params.SHCoeffs[4 * 3 + 1], params.SHCoeffs[4 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L2m1");
+	glUniform3f(texLoc, params.SHCoeffs[5 * 3 + 0], params.SHCoeffs[5 * 3 + 1], params.SHCoeffs[5 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L20");
+	glUniform3f(texLoc, params.SHCoeffs[6 * 3 + 0], params.SHCoeffs[6 * 3 + 1], params.SHCoeffs[6 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L21");
+	glUniform3f(texLoc, params.SHCoeffs[7 * 3 + 0], params.SHCoeffs[7 * 3 + 1], params.SHCoeffs[7 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "L22");
+	glUniform3f(texLoc, params.SHCoeffs[8 * 3 + 0], params.SHCoeffs[8 * 3 + 1], params.SHCoeffs[8 * 3 + 2]);
+	texLoc = glGetUniformLocation(shaderProg, "lightDir");
+	glUniform3f(texLoc, params.dominantLightDirection[0], params.dominantLightDirection[1], params.dominantLightDirection[2]);
+	texLoc = glGetUniformLocation(shaderProg, "lightColor");
+	glUniform3f(texLoc, params.dominantLightColor[0], params.dominantLightColor[1], params.dominantLightColor[2]);
+	texLoc = glGetUniformLocation(shaderProg, "diffuseScaleFactor");
+	glUniform1f(texLoc, params.diffuseScaleFactor);
+	texLoc = glGetUniformLocation(shaderProg, "specularScaleFactor");
+	glUniform1f(texLoc, params.specularScaleFactor);
+	texLoc = glGetUniformLocation(shaderProg, "shininess");
+	glUniform1f(texLoc, params.shininess);
+	
+}
+
 void MyGLImageViewer::drawDepthTexture(GLuint *texVBO, int index, int windowWidth, int windowHeight)
 {
 	gluOrtho2D( 0, windowWidth, windowHeight/2, 0 ); 
@@ -280,12 +313,12 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnCurvatureMap);
 	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnDistanceFalloff");
 	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnDistanceFalloff);
-	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnClipping");
-	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnClipping);
-	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMaskCase1");
-	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMaskCase1);
-	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSubtractionMaskCase2");
-	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSubtractionMaskCase2);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnSmoothContours");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnSmoothContours);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnVisibleBackgroundForCTData");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnVisibleBackgroundForCTData);
+	texLoc = glGetUniformLocation(shaderProg, "ghostViewBasedOnVisibleBackgroundForMRIData");
+	glUniform1i(texLoc, (int)occlusionParams.ghostViewBasedOnVisibleBackgroundForMRIData);
 
 	if(occlusionParams.ARFromVolumeRendering)
 	{
@@ -302,19 +335,19 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glUniform1f(texLoc, occlusionParams.distanceFalloffWeight);
 		}
 	
-		if(occlusionParams.ghostViewBasedOnClipping) {
+		if(occlusionParams.ghostViewBasedOnSmoothContours) {
 			texLoc = glGetUniformLocation(shaderProg, "contoursMap");
 			glUniform1i(texLoc, 10);
-			texLoc = glGetUniformLocation(shaderProg, "clippingWeight");
-			glUniform1f(texLoc, occlusionParams.clippingWeight);
+			texLoc = glGetUniformLocation(shaderProg, "smoothContoursWeight");
+			glUniform1f(texLoc, occlusionParams.smoothContoursWeight);
 		}
 
-		if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1 || occlusionParams.ghostViewBasedOnSubtractionMaskCase2) {
+		if(occlusionParams.ghostViewBasedOnVisibleBackgroundForCTData || occlusionParams.ghostViewBasedOnVisibleBackgroundForMRIData) {
 			texLoc = glGetUniformLocation(shaderProg, "backgroundMap");
 			glUniform1i(texLoc, 11);
 			texLoc = glGetUniformLocation(shaderProg, "subtractionMap");
 			glUniform1i(texLoc, 12);
-			if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1) {
+			if(occlusionParams.ghostViewBasedOnVisibleBackgroundForCTData) {
 				texLoc = glGetUniformLocation(shaderProg, "grayLevelWeight");
 				glUniform1f(texLoc, occlusionParams.grayLevelWeight);
 			}
@@ -342,12 +375,12 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.curvatureMapIndex]);
 		}
 
-		if(occlusionParams.ghostViewBasedOnClipping) {
+		if(occlusionParams.ghostViewBasedOnSmoothContours) {
 			glActiveTexture(GL_TEXTURE10);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.contoursMapIndex]);
 		}
 
-		if(occlusionParams.ghostViewBasedOnSubtractionMaskCase1 || occlusionParams.ghostViewBasedOnSubtractionMaskCase2) {
+		if(occlusionParams.ghostViewBasedOnVisibleBackgroundForCTData || occlusionParams.ghostViewBasedOnVisibleBackgroundForMRIData) {
 			glActiveTexture(GL_TEXTURE11);
 			glBindTexture(GL_TEXTURE_2D, occlusionParams.texVBO[occlusionParams.backgroundMapIndex]);
 			glActiveTexture(GL_TEXTURE12);
@@ -388,8 +421,8 @@ void MyGLImageViewer::drawARTextureWithOcclusion(AROcclusionParams occlusionPara
 
 }
 
-void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, VRParams params, int frontFBOIndex, int backFBOIndex, 
-	float* cameraPos, int windowWidth, int windowHeight, MyGLCloudViewer *myGLCloudViewer, GLuint *quadVBO, int transferFunctionIndex, 
+void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, VRParams params, HDRParams hdrParams, int frontFBOIndex, 
+	int backFBOIndex, int windowWidth, int windowHeight, MyGLCloudViewer *myGLCloudViewer, GLuint *quadVBO, int transferFunctionIndex, 
 	int noiseIndex)
 {	
 	
@@ -417,14 +450,35 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 		texLoc = glGetUniformLocation(shaderProg, "earlyRayTerminationThreshold");
 		glUniform1f(texLoc, params.earlyRayTerminationThreshold);
 
-		texLoc = glGetUniformLocation(shaderProg, "camera");
-		glUniform3f(texLoc, cameraPos[0], cameraPos[1], cameraPos[2]); 
-
 		texLoc = glGetUniformLocation(shaderProg, "kt");
 		glUniform1f(texLoc, params.kt);
 
 		texLoc = glGetUniformLocation(shaderProg, "ks");
 		glUniform1f(texLoc, params.ks);
+
+		if(params.transferFunctionOn) {
+			texLoc = glGetUniformLocation(shaderProg, "transferFunctionOn");
+			glUniform1i(texLoc, 1);
+		} else {
+			texLoc = glGetUniformLocation(shaderProg, "transferFunctionOn");
+			glUniform1i(texLoc, 0);
+		}
+
+		if(params.BlinnPhongShadingOn) {
+			texLoc = glGetUniformLocation(shaderProg, "BlinnPhongShadingOn");
+			glUniform1i(texLoc, 1);
+		} else {
+			texLoc = glGetUniformLocation(shaderProg, "BlinnPhongShadingOn");
+			glUniform1i(texLoc, 0);
+		}
+
+		if(params.NonPolygonalIsoSurface) {
+			texLoc = glGetUniformLocation(shaderProg, "NonPolygonalIsoSurfaceOn");
+			glUniform1i(texLoc, 1);
+		} else {
+			texLoc = glGetUniformLocation(shaderProg, "NonPolygonalIsoSurfaceOn");
+			glUniform1i(texLoc, 0);
+		}
 
 		if(params.stochasticJithering) {
 			texLoc = glGetUniformLocation(shaderProg, "stochasticJithering");
@@ -455,6 +509,15 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 			glUniform1i(texLoc, 1);
 		} else { 
 			texLoc = glGetUniformLocation(shaderProg, "forwardDifference");
+			glUniform1i(texLoc, 0);
+		}
+
+		if(params.useIBL) {
+			texLoc = glGetUniformLocation(shaderProg, "useIBL");
+			glUniform1i(texLoc, 1);
+			loadSHCoeffs(shaderProg, hdrParams);
+		} else {
+			texLoc = glGetUniformLocation(shaderProg, "useIBL");
 			glUniform1i(texLoc, 0);
 		}
 
@@ -497,6 +560,7 @@ void MyGLImageViewer::draw3DTexture(GLuint *texVBO, int index, int octreeIndex, 
 	}
 	
 	myGLCloudViewer->drawQuad(quadVBO);
+
 	if(transferFunctionIndex != 0) {
 	
 		texLoc = glGetUniformLocation(shaderProg, "transferFunction");

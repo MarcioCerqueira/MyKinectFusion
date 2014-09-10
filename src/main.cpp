@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <pcl/console/parse.h>
 #include <GL/glew.h>
@@ -18,6 +17,9 @@
 #include "VolumeRendering/MinMaxOctree.h"
 #include "VolumeRendering/TransferFunction.h"
 #include "VolumeRendering/TriCubicInterpolationPreFilter.h"
+#include "ImageBasedLighting/HDR/HDRImage.h"
+#include "ImageBasedLighting/HDR/LightProbeCapture.h"
+#include "ImageBasedLighting/HDR/HDRParams.h"
 #include "Kinect.h"
 #include "Image.h"
 #include "FaceDetection.h"
@@ -44,8 +46,11 @@ TriCubicInterpolationPreFilter *triCubicInterpolationPreFilter;
 ColoredReconstructionMediator *coloredReconstructionMediator;
 HeadPoseEstimationMediator *headPoseEstimationMediator;
 FaceDetection *faceDetector;
+HDRImage *hdrImage;
+LightProbeCapture *lightProbeCapture;
 AROcclusionParams occlusionParams;
 ModelViewParams modelViewParams;
+HDRParams hdrParams;
 
 GLuint texVBO[25]; 
 GLuint spt[2];
@@ -55,7 +60,8 @@ GLuint virtualFrameBuffer;
 GLuint realFrameBuffer;
 GLuint frontQuadFrameBuffer;
 GLuint backQuadFrameBuffer;
-GLuint subtractionFrameBuffer;
+GLuint contoursFrameBuffer;
+GLuint gaussianFrameBuffer;
 
 enum
 {
@@ -76,10 +82,26 @@ enum
 	BACK_QUAD_RGB_FBO = 14,
 	BACK_QUAD_DEPTH_FBO = 15,
 	CURVATURE_MAP_FBO = 16, 
-	CONTOURS_FBO = 17,
-	BACKGROUND_SCENE_FBO = 18,
-	SUBTRACTION_MASK_FBO = 19, 
-	SUBTRACTION_MASK_DEPTH_FBO = 20
+	CONTOURS_RGB_FBO = 17,
+	CONTOURS_DEPTH_FBO = 18,
+	BACKGROUND_SCENE_FBO = 19,
+	SUBTRACTION_MASK_FBO = 20, 
+	SUBTRACTION_MASK_DEPTH_FBO = 21,
+	GAUSSIAN_MASK_FBO = 22,
+	GAUSSIAN_MASK_DEPTH_FBO = 23,
+	LIGHT_PROBE_FBO = 24
+};
+
+enum
+{
+	PHONG_SHADER = 0,
+	OCCLUSION_SHADER = 1,
+	VOLUME_RENDERING_SHADER = 2,
+	ILLUSTRATIVE_RENDERING_SHADER = 3,
+	SOBEL_SHADER = 4,
+	GAUSSIAN_BLUR_X_SHADER = 5,
+	GAUSSIAN_BLUR_Y_SHADER = 6,
+	IMAGE_RENDERING_SHADER = 7
 };
 
 int indices[640 * 480 * 6];
@@ -92,7 +114,7 @@ unsigned char backgroundScene[640 * 480 * 3];
 
 float curvatureWeight = 0;
 float distanceFalloffWeight = 10.0;
-float clippingWeight = 0;
+float smoothContoursWeight = 0;
 float grayLevelWeight = 0;
 float focusPoint[2] = {0, 0};
 float focusRadius = 50;
@@ -112,7 +134,7 @@ bool ksOn = false;
 bool ktOn = false;
 bool curvatureWeightOn = false;
 bool distanceFallOffWeightOn = false;
-bool clippingWeightOn = false;
+bool smoothContoursWeightOn = false;
 bool grayLevelWeightOn = false;
 bool focusRadiusOn = false;
 bool clippingPlaneLeftXOn = false;
@@ -127,15 +149,18 @@ bool clippingPlaneUpYTSDFVolumeOn = false;
 bool clippingPlaneDownYTSDFVolumeOn = false;
 bool clippingPlaneFrontZTSDFVolumeOn = false;
 bool clippingPlaneBackZTSDFVolumeOn = false;
+bool diffuseScaleOn = false;
+bool specularScaleOn = false;
+bool shininessScaleOn = false;
 bool AR = false;
 bool ARConfiguration = false;
 
 bool alphaBlendingOn = true;
 bool curvatureBlendingOn = false;
 bool distanceFalloffBlendingOn = false;
-bool clippingBlendingOn = false;
-bool subtractionMaskCase1On = false;
-bool subtractionMaskCase2On = false;
+bool smoothContoursBlendingOn = false;
+bool visibleBackgroundForCTDataOn = false;
+bool visibleBackgroundForMRIDataOn = false;
 
 //AR Configuration (Polygonal model)
 bool ARPolygonal = false;
@@ -150,14 +175,16 @@ bool ARVolumetric = false;
 VRParams vrparams;
 int VRShaderID = 2;
 
+//AR Configuration (General)
 bool ARKinectFusionVolume = true;
-
 bool integrateColors = false;
 bool isHeadPoseEstimationEnabled = false;
 bool hasFaceDetection = false;
 bool faceDetected = false;
 bool shader=true;
+bool isIBLEnabled = false;
 
+//Some display configuration
 bool showCloud = false;
 bool showRaycasting = true;
 bool showDepthMap = true;
@@ -187,6 +214,7 @@ unsigned char *clippedImage;
 
 IplImage *image;
 IplImage *grayImage;
+cv::Mat hdrMap;
 
 void calculateFPS() {
 
@@ -370,35 +398,39 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 	scale[1] = 1;
 	scale[2] = 1;
 
-	if(pcl::console::find_argument(argc, argv, "--cloud") >= 0) {
-	showCloud = true;
-	}
+	if(pcl::console::find_argument(argc, argv, "--cloud") >= 0)
+		showCloud = true;
+	
 	if(pcl::console::find_argument(argc, argv, "--color") >= 0) {
-	integrateColors = true;
-	coloredReconstructionMediator = new ColoredReconstructionMediator(reconstruction->getVolumeSize());
+		integrateColors = true;
+		coloredReconstructionMediator = new ColoredReconstructionMediator(reconstruction->getVolumeSize());
 	}
-	if(pcl::console::find_argument(argc, argv, "-h") >= 0) {
-	printHelp();
-	}
-	if(pcl::console::parse(argc, argv, "--threshold", aux) >= 0) {
-	threshold = atoi(aux);
-	}
+
+	if(pcl::console::find_argument(argc, argv, "-h") >= 0)
+		printHelp();
+
+	if(pcl::console::parse(argc, argv, "--threshold", aux) >= 0)
+		threshold = atoi(aux);
+
 	if(pcl::console::parse(argc, argv, "--hpefile", hpeConfigFileName) >= 0) {
-	isHeadPoseEstimationEnabled = true;
-	headPoseEstimationMediator = new HeadPoseEstimationMediator(hpeConfigFileName);
-	reconstruction->setHeadPoseEstimationMediatorPointer((void*)headPoseEstimationMediator);
+		isHeadPoseEstimationEnabled = true;
+		headPoseEstimationMediator = new HeadPoseEstimationMediator(hpeConfigFileName);
+		reconstruction->setHeadPoseEstimationMediatorPointer((void*)headPoseEstimationMediator);
 	}
+
 	if(pcl::console::parse(argc, argv, "--face", cascadeFileName) >= 0) {
-	hasFaceDetection = true;
-	faceDetector = new FaceDetection(cascadeFileName);
+		hasFaceDetection = true;
+		faceDetector = new FaceDetection(cascadeFileName);
 	}
+
 	if(pcl::console::parse(argc, argv, "--arobject", ARObjectFileName) >= 0) {
 		ARPolygonal = true;
 		ARVolumetric = false;
 		ARKinectFusionVolume = false;
 	}
+
 	if(pcl::console::parse(argc, argv, "--volfile", volumeConfigurationFile) >= 0) {
-		//sprintf(volumetricPathExtension, "%s", "tif");
+		
 		ARVolumetric = true;
 		ARPolygonal = false;
 		ARKinectFusionVolume = false;
@@ -444,6 +476,24 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 
 	}
 
+	if(pcl::console::parse(argc, argv, "--IBL", aux) >= 0) {
+
+		isIBLEnabled = true;
+
+		hdrParams.cameraID = atoi(aux);
+		hdrParams.shininess = 10;
+		hdrParams.diffuseScaleFactor = 0.07;
+		hdrParams.specularScaleFactor = 1;
+	
+		hdrImage = new HDRImage(256, 256);
+		hdrImage->computeCoordinates();
+		hdrImage->computeDomegaProduct();
+		hdrImage->setScale(1);
+
+		lightProbeCapture = new LightProbeCapture(hdrParams.cameraID);
+		
+	}
+	
 	//Initialize reconstruction with arguments
 	reconstruction->setThreshold(threshold);
 
@@ -475,7 +525,7 @@ void loadARDepthDataBasedOnDepthMaps()
 	for(int p = 0; p < 640 * 480; p++)
 		depthData[p] = pointCloud[p * 3 + 2];///(float)reconstruction->getThreshold();
 	
-	if(subtractionMaskCase1On || subtractionMaskCase2On) {
+	if(visibleBackgroundForCTDataOn || visibleBackgroundForMRIDataOn) {
 	
 		IplImage *faceImage = cvCreateImage(cvSize(kinect->getImageWidth(), kinect->getImageHeight()), IPL_DEPTH_32F, 1);
 		IplImage *binImage = cvCreateImage(cvSize(kinect->getImageWidth(), kinect->getImageHeight()), IPL_DEPTH_8U, 1);
@@ -534,56 +584,32 @@ void loadARDepthDataBasedOnDepthMaps()
 void computeVolumeContours()
 {
 
-	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glBindFramebuffer(GL_FRAMEBUFFER, contoursFrameBuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();    
-	
-	myGLImageViewer->setProgram(shaderProg[7]);
+	myGLImageViewer->setProgram(shaderProg[SOBEL_SHADER]);
 	myGLImageViewer->drawRGBTextureOnShader(texVBO, VIRTUAL_RGB_BO, windowWidth, windowHeight);
-	myGLImageViewer->loadFrameBufferTexture(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	
-	glScissor(0, windowHeight/2, windowWidth/2, windowHeight/2);
-	glEnable(GL_SCISSOR_TEST);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_SCISSOR_TEST);
+	glBindFramebuffer(GL_FRAMEBUFFER, gaussianFrameBuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	myGLImageViewer->setProgram(shaderProg[GAUSSIAN_BLUR_X_SHADER]);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, CONTOURS_RGB_FBO, windowWidth, windowHeight);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	
-	unsigned char *volumeImage = myGLImageViewer->getFrameBuffer();
-	
-	CvMemStorage* storage = cvCreateMemStorage(0);
-	CvSeq* contours = 0;
-	
-	image->imageData = (char*)volumeImage;
-	cvCvtColor(image, image, CV_BGR2RGB);
-	//cvSaveImage("F:/image.png", image);
-	cvCvtColor(image, grayImage, CV_BGR2GRAY);
-	//cvSaveImage("F:/grayImage.png", grayImage);
-	cvThreshold(grayImage, grayImage, 0, 255, CV_THRESH_OTSU);
-	//cvSaveImage("F:/binaryImage.png", grayImage);
-	cvFindContours(grayImage, storage, &contours);
-	cvDrawContours(grayImage, contours, cvScalarAll(255), cvScalarAll(0), 100);
-	//cvSaveImage("F:/contoursImage.png", grayImage);
-
-	double K[] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };  
-  
-	float t=0;  
-	for(int i = 0; i < (3 * 3); ++i)  
-		 t = t + K[i];  
-	for(int i = 0; i < (3 * 3); ++i)  
-		 K[i] = K[i] / t;  
-  
-	CvMat kernel = cvMat(3, 3, CV_64FC1, K); 
-	for(int x = 0; x < 5; x++)
-		cvFilter2D(grayImage, grayImage, &kernel);
-	
-	//cvSaveImage("F:/gaussContoursImage.png", grayImage);
-
-	for(int pixel = 0; pixel < (640 * 480); pixel++)
-		for(int ch = 0; ch < 3; ch++)
-			image->imageData[pixel * 3 + ch] = grayImage->imageData[pixel];
-
-	myGLImageViewer->loadRGBTexture((unsigned char*)image->imageData, texVBO, CONTOURS_FBO, image->width, image->height);
-
-	cvClearMemStorage(storage);
+	glBindFramebuffer(GL_FRAMEBUFFER, contoursFrameBuffer);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glViewport(0, 0, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+	myGLImageViewer->setProgram(shaderProg[GAUSSIAN_BLUR_Y_SHADER]);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, GAUSSIAN_MASK_FBO, windowWidth, windowHeight);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 }
 
@@ -628,7 +654,7 @@ void displayContoursData()
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();    
 	
-	myGLImageViewer->setProgram(shaderProg[7]);
+	myGLImageViewer->setProgram(shaderProg[IMAGE_RENDERING_SHADER]);
 	myGLImageViewer->drawRGBTextureOnShader(texVBO, SUBTRACTION_MASK_FBO, windowWidth, windowHeight);
 
 }
@@ -683,6 +709,31 @@ void displayRaycastedData()
 	myGLImageViewer->loadRGBTexture(imageCollection->getRaycastImage(reconstruction->getVolumeSize(), 
 		reconstruction->getGlobalPreviousPointCloud()), texVBO, RAYCAST_BO, kinect->getImageWidth(), kinect->getImageHeight());
 	myGLImageViewer->drawRGBTexture(texVBO, RAYCAST_BO, windowWidth, windowHeight);
+
+}
+
+void displayLightProbeCapture()
+{
+
+	lightProbeCapture->captureSphericalMap();
+	hdrMap = lightProbeCapture->getOriginalImage();
+	cv::cvtColor(hdrMap, hdrMap, CV_BGR2RGB);
+	
+	glViewport(0, windowHeight/2, windowWidth/2, windowHeight/2);
+	glMatrixMode(GL_PROJECTION);          
+	glLoadIdentity();    
+
+	myGLImageViewer->setProgram(shaderProg[IMAGE_RENDERING_SHADER]);
+	myGLImageViewer->loadRGBTexture(hdrMap.ptr<unsigned char>(), texVBO, LIGHT_PROBE_FBO, hdrMap.cols, hdrMap.rows);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, LIGHT_PROBE_FBO, windowWidth, windowHeight);
+
+	hdrMap = lightProbeCapture->getImage();
+	cv::cvtColor(hdrMap, hdrMap, CV_BGR2RGB);
+	hdrImage->load(hdrMap.ptr<unsigned char>());
+	hdrImage->computeSHCoeffs();
+	hdrImage->computeDominantLightDirection();
+	hdrImage->computeDominantLightColor();
+	hdrImage->load(&hdrParams);
 
 }
 
@@ -819,8 +870,8 @@ void displayMedicalVolume()
 	myGLCloudViewer->updateModelViewMatrix(modelViewParams);
 	glScalef(scale[0], scale[1], scale[2]);
 	
-	myGLImageViewer->draw3DTexture(texVBO, AR_FROM_VOLUME_RENDERING_BO, MIN_MAX_OCTREE_BO, vrparams, FRONT_QUAD_RGB_FBO, BACK_QUAD_RGB_FBO, 
-		myGLCloudViewer->getEyePosition(), windowWidth/2, windowHeight/2, myGLCloudViewer, quadVBO, TRANSFER_FUNCTION_BO, NOISE_BO);
+	myGLImageViewer->draw3DTexture(texVBO, AR_FROM_VOLUME_RENDERING_BO, MIN_MAX_OCTREE_BO, vrparams, hdrParams, FRONT_QUAD_RGB_FBO, 
+		BACK_QUAD_RGB_FBO, windowWidth/2, windowHeight/2, myGLCloudViewer, quadVBO, TRANSFER_FUNCTION_BO, NOISE_BO);
 	glPopMatrix();
 
 	glDisable(GL_BLEND);
@@ -863,9 +914,9 @@ void displayARDataFromVolume()
 	occlusionParams.alphaBlending = true;
 	occlusionParams.ghostViewBasedOnCurvatureMap = false;
 	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
-	occlusionParams.ghostViewBasedOnClipping = false;
+	occlusionParams.ghostViewBasedOnSmoothContours = false;
 	
-	myGLImageViewer->setProgram(shaderProg[1]);
+	myGLImageViewer->setProgram(shaderProg[OCCLUSION_SHADER]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
 }
@@ -932,9 +983,9 @@ void displayARDataFromOBJFile()
 	occlusionParams.alphaBlending = true;
 	occlusionParams.ghostViewBasedOnCurvatureMap = false;
 	occlusionParams.ghostViewBasedOnDistanceFalloff = false;
-	occlusionParams.ghostViewBasedOnClipping = false;
+	occlusionParams.ghostViewBasedOnSmoothContours = false;
 	
-	myGLImageViewer->setProgram(shaderProg[1]);
+	myGLImageViewer->setProgram(shaderProg[OCCLUSION_SHADER]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
 }
@@ -962,7 +1013,7 @@ void displayARDataFromVolumeRendering()
 	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	
-	if(subtractionMaskCase1On) {
+	if(visibleBackgroundForCTDataOn) {
 		glScissor(0, 0, windowWidth/2, windowHeight/2);
 		glEnable(GL_SCISSOR_TEST);
 		glClearColor(1.f, 1.f, 1.f, 0.0f);
@@ -976,10 +1027,10 @@ void displayARDataFromVolumeRendering()
 
 	loadARDepthDataBasedOnDepthMaps();	
 	
-	if(clippingBlendingOn)
+	if(smoothContoursBlendingOn)
 		computeVolumeContours();
 
-	if(subtractionMaskCase2On)
+	if(visibleBackgroundForMRIDataOn)
 		computeTSDFClippedRegion();
 	
 	//Fourth Viewport: Virtual + Real Object
@@ -995,7 +1046,7 @@ void displayARDataFromVolumeRendering()
 	occlusionParams.virtualRGBIndex = VIRTUAL_RGB_BO;
 	occlusionParams.virtualDepthIndex = VIRTUAL_DEPTH_BO;
 	occlusionParams.curvatureMapIndex = CURVATURE_MAP_FBO;
-	occlusionParams.contoursMapIndex = CONTOURS_FBO;
+	occlusionParams.contoursMapIndex = CONTOURS_RGB_FBO;
 	occlusionParams.backgroundMapIndex = BACKGROUND_SCENE_FBO;
 	occlusionParams.subtractionMapIndex = SUBTRACTION_MASK_FBO;
 	occlusionParams.windowWidth = windowWidth;
@@ -1006,18 +1057,18 @@ void displayARDataFromVolumeRendering()
 	occlusionParams.alphaBlending = alphaBlendingOn;
 	occlusionParams.ghostViewBasedOnCurvatureMap = curvatureBlendingOn;
 	occlusionParams.ghostViewBasedOnDistanceFalloff = distanceFalloffBlendingOn;
-	occlusionParams.ghostViewBasedOnClipping = clippingBlendingOn;
-	occlusionParams.ghostViewBasedOnSubtractionMaskCase1 = subtractionMaskCase1On;
-	occlusionParams.ghostViewBasedOnSubtractionMaskCase2 = subtractionMaskCase2On;
+	occlusionParams.ghostViewBasedOnSmoothContours = smoothContoursBlendingOn;
+	occlusionParams.ghostViewBasedOnVisibleBackgroundForCTData = visibleBackgroundForCTDataOn;
+	occlusionParams.ghostViewBasedOnVisibleBackgroundForMRIData = visibleBackgroundForMRIDataOn;
 	occlusionParams.curvatureWeight = curvatureWeight;
 	occlusionParams.distanceFalloffWeight = distanceFalloffWeight;
-	occlusionParams.clippingWeight = clippingWeight;
+	occlusionParams.smoothContoursWeight = smoothContoursWeight;
 	occlusionParams.grayLevelWeight = grayLevelWeight;
 	occlusionParams.focusPoint[0] = focusPoint[0];
 	occlusionParams.focusPoint[1] = focusPoint[1];
 	occlusionParams.focusRadius = focusRadius;
 
-	myGLImageViewer->setProgram(shaderProg[1]);
+	myGLImageViewer->setProgram(shaderProg[OCCLUSION_SHADER]);
 	myGLImageViewer->drawARTextureWithOcclusion(occlusionParams);
 	
 }
@@ -1027,8 +1078,8 @@ void display()
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
-	if(!AR)
-	{
+	if(!AR) {
+
 		if(workAround == 1)
 			displayCloud();
 		if(showDepthMap)
@@ -1044,17 +1095,22 @@ void display()
 				displayCloud(!reconstruction->isOnlyTrackingOn());
 			else
 				displayCloud();
+	
 	} else {
+	
 		if(showCloud)
 			displayCloud(ARConfiguration);
 		if(showContoursMap)
 			displayContoursData();
+		if(isIBLEnabled)
+			displayLightProbeCapture();
 		if(ARPolygonal)
 			displayARDataFromOBJFile();
 		if(ARVolumetric)
 			displayARDataFromVolumeRendering();
 		if(ARKinectFusionVolume)			
 			displayARDataFromVolume();
+	
 	}
 	
 	glutSwapBuffers();
@@ -1155,14 +1211,14 @@ void keyboard(unsigned char key, int x, int y)
 			translationVector[2] = -(reconstruction->getInitialTranslation()(2) - reconstruction->getCurrentTranslation()(2));
 			AR = true;
 			ARConfiguration = true;
-			
+
 			if(ARPolygonal || ARKinectFusionVolume)
 				glEnable(GL_DEPTH_TEST);
 			
 			reconstruction->enableOnlyTracking();
 			hasFaceDetection = false;
 			myGLCloudViewer->setEyePosition(1, 0, 120);
-			focusRadius = 500;
+			focusRadius = 50;
 
 			if(ARVolumetric)
 				positionVirtualObject(320, 320);
@@ -1177,7 +1233,7 @@ void keyboard(unsigned char key, int x, int y)
 			myGLCloudViewer->setEyePosition(1, 0, 170);
 			w3 = 170;
 			std::cout << "AR Enabled: Configuration finished" << std::endl;
-			
+
 		} else if(AR && !ARConfiguration){
 			AR = false;
 		}
@@ -1188,10 +1244,6 @@ void keyboard(unsigned char key, int x, int y)
 		break;
 	case (int)'u':
 		shader = !shader;
-		break;
-	case (int)'d':
-		focusRadius = 50;
-		distanceFalloffWeight = 2.0;
 		break;
 	case (int)'h':
 		std::cout << rotationAngles[0] << " " << rotationAngles[1] << " " << rotationAngles[2] << std::endl;
@@ -1219,7 +1271,7 @@ void specialKeyboard(int key, int x, int y)
 		if(stepSizeModificationOn)
 			vrparams.stepSize += 1.0/2048.0;
 		if(isoSurfaceThresholdModificationOn)
-			vrparams.isoSurfaceThreshold += 0.05;
+			vrparams.isoSurfaceThreshold += 0.025;
 		if(ksOn)
 			vrparams.ks += 0.01;
 		if(ktOn)
@@ -1230,8 +1282,8 @@ void specialKeyboard(int key, int x, int y)
 			focusRadius += 5;
 		if(distanceFallOffWeightOn)
 			distanceFalloffWeight += 0.1;
-		if(clippingWeightOn)
-			clippingWeight += 0.5;
+		if(smoothContoursWeightOn)
+			smoothContoursWeight += 0.5;
 		if(grayLevelWeightOn)
 			grayLevelWeight += 0.01;
 		if(clippingPlaneUpYOn) {
@@ -1246,6 +1298,12 @@ void specialKeyboard(int key, int x, int y)
 			reconstruction->getTsdfVolume()->decrementClippingPlaneUpY();
 		if(clippingPlaneDownYTSDFVolumeOn)
 			reconstruction->getTsdfVolume()->decrementClippingPlaneDownY();
+		if(diffuseScaleOn)
+			hdrParams.diffuseScaleFactor += 0.01;
+		if(specularScaleOn)
+			hdrParams.specularScaleFactor += 0.5;
+		if(shininessScaleOn)
+			hdrParams.shininess += 1;
 		break;
 	case GLUT_KEY_DOWN:
 		if(translationOn)
@@ -1262,7 +1320,7 @@ void specialKeyboard(int key, int x, int y)
 			if(vrparams.stepSize <= 0) vrparams.stepSize = 0;
 		}
 		if(isoSurfaceThresholdModificationOn)
-			vrparams.isoSurfaceThreshold -= 0.05;
+			vrparams.isoSurfaceThreshold -= 0.025;
 		if(ksOn)
 			vrparams.ks -= 0.01;
 		if(ktOn)
@@ -1279,9 +1337,9 @@ void specialKeyboard(int key, int x, int y)
 			distanceFalloffWeight -= 0.1;
 			if(distanceFalloffWeight < 0) distanceFalloffWeight = 0;
 		}
-		if(clippingWeightOn) {
-			clippingWeight -= 0.5;
-			if(clippingWeight < 0) clippingWeight = 0;
+		if(smoothContoursWeightOn) {
+			smoothContoursWeight -= 0.5;
+			if(smoothContoursWeight < 0) smoothContoursWeight = 0;
 		}
 		if(grayLevelWeightOn) {
 			grayLevelWeight -= 0.01;
@@ -1299,6 +1357,12 @@ void specialKeyboard(int key, int x, int y)
 			reconstruction->getTsdfVolume()->incrementClippingPlaneUpY();
 		if(clippingPlaneDownYTSDFVolumeOn)
 			reconstruction->getTsdfVolume()->incrementClippingPlaneDownY();
+		if(diffuseScaleOn)
+			hdrParams.diffuseScaleFactor -= 0.01;
+		if(specularScaleOn)
+			hdrParams.specularScaleFactor -= 0.5;
+		if(shininessScaleOn)
+			hdrParams.shininess -= 1;
 		break;
 	case GLUT_KEY_LEFT:
 		if(translationOn)
@@ -1417,28 +1481,30 @@ void volumeRenderingMenu(int id)
 		break;
 	case 3:
 		vrparams.NonPolygonalIsoSurface = !vrparams.NonPolygonalIsoSurface;
-		VRShaderID = 6;
+		VRShaderID = VOLUME_RENDERING_SHADER;
 		break;
 	case 4:
 		vrparams.gradientByForwardDifferences = !vrparams.gradientByForwardDifferences;
 		break;
-	case 5:
-		VRShaderID = 2;
-		break;
 	case 6:
-		VRShaderID = 4;
+		vrparams.transferFunctionOn = !vrparams.transferFunctionOn;
+		VRShaderID = VOLUME_RENDERING_SHADER;
 		break;
 	case 7:
-		VRShaderID = 5;
+		vrparams.BlinnPhongShadingOn = !vrparams.BlinnPhongShadingOn;
+		VRShaderID = VOLUME_RENDERING_SHADER;
 		break;
 	case 8:
-		VRShaderID = 3;
+		VRShaderID = ILLUSTRATIVE_RENDERING_SHADER;
 		break;
 	case 9:
 		vrparams.clippingOcclusion = !vrparams.clippingOcclusion;
 		break;
 	case 10:
 		vrparams.inverseClipping = !vrparams.inverseClipping;
+		break;
+	case 11:
+		vrparams.useIBL = !vrparams.useIBL;
 		break;
 	}
 }
@@ -1469,8 +1535,11 @@ void resetBooleans()
 	clippingPlaneDownYTSDFVolumeOn = false;
 	clippingPlaneFrontZTSDFVolumeOn = false;
 	clippingPlaneBackZTSDFVolumeOn = false;
-	clippingWeightOn = false;
+	smoothContoursWeightOn = false;
 	grayLevelWeightOn = false;
+	diffuseScaleOn = false;
+	specularScaleOn = false;
+	shininessScaleOn = false;
 
 }
 
@@ -1505,7 +1574,7 @@ void thresholdMenu(int id)
 		focusRadiusOn = true;
 		break;
 	case 8:
-		clippingWeightOn = true;
+		smoothContoursWeightOn = true;
 		break;
 	case 9:
 		grayLevelWeightOn = true;
@@ -1579,15 +1648,17 @@ void transformationMenu(int id)
 void blendingMenu(int id) 
 {
 	
+	focusRadius = 50;
+
 	switch(id)
 	{
 	case 0:
 		alphaBlendingOn = true;
 		curvatureBlendingOn = false;
 		distanceFalloffBlendingOn = false;
-		clippingBlendingOn = false;
-		subtractionMaskCase1On = false;
-		subtractionMaskCase2On = false;
+		smoothContoursBlendingOn = false;
+		visibleBackgroundForCTDataOn = false;
+		visibleBackgroundForMRIDataOn = false;
 		break;
 	case 1:
 		alphaBlendingOn = false;
@@ -1599,21 +1670,40 @@ void blendingMenu(int id)
 		break;
 	case 3:
 		alphaBlendingOn = false;
-		clippingBlendingOn = !clippingBlendingOn;
+		smoothContoursBlendingOn = !smoothContoursBlendingOn;
 		break;
 	case 4:
 		alphaBlendingOn = false;
-		subtractionMaskCase1On = !subtractionMaskCase1On;
+		visibleBackgroundForCTDataOn = !visibleBackgroundForCTDataOn;
 		break;
 	case 5:
 		alphaBlendingOn = false;
-		subtractionMaskCase2On = !subtractionMaskCase2On;
+		visibleBackgroundForMRIDataOn = !visibleBackgroundForMRIDataOn;
 
-		if(subtractionMaskCase2On)
+		if(visibleBackgroundForMRIDataOn)
 			reconstruction->getTsdfVolume()->hasClippingPlane = true;
 		else
 			reconstruction->getTsdfVolume()->hasClippingPlane = false;
 
+		break;
+	}
+
+}
+
+void imageBasedLightingMenu(int id)
+{
+
+	resetBooleans();
+	switch(id)
+	{
+	case 0:
+		diffuseScaleOn = true;
+		break;
+	case 1:
+		specularScaleOn = true;
+		break;
+	case 2:
+		shininessScaleOn = true;
 		break;
 	}
 
@@ -1644,32 +1734,33 @@ void otherFunctionsMenu(int id)
 void createMenu()
 {
 
-	GLint volumeRenderingMenuID, thresholdMenuID, clippingMenuID, transformationMenuID, blendingMenuID, otherFunctionsMenuID;
+	GLint volumeRenderingMenuID, thresholdMenuID, clippingMenuID, transformationMenuID, blendingMenuID, imageBasedLightingMenuID, 
+		otherFunctionsMenuID;
 
 	volumeRenderingMenuID = glutCreateMenu(volumeRenderingMenu);
 		glutAddMenuEntry("Stochastic Jithering [On/Off]", 0);
 		glutAddMenuEntry("Tricubic Interpolation [On/Off]", 1);
 		glutAddMenuEntry("MIP [On/Off]", 2);
-		glutAddMenuEntry("Non Polygonal Iso Surface Rendering", 3);
+		glutAddMenuEntry("Non Polygonal Iso Surface [On/Off]", 3);
 		glutAddMenuEntry("Gradient by Forward Differences [On/Off]", 4);
-		glutAddMenuEntry("Default Volume Rendering", 5);
-		glutAddMenuEntry("Only Transfer Function", 6);
-		glutAddMenuEntry("Transfer Function + Local Illumination", 7);
+		glutAddMenuEntry("Transfer Function [On/Off]", 6);
+		glutAddMenuEntry("Local Illumination [On/Off]", 7);
 		glutAddMenuEntry("Context-Preserving Volume Rendering", 8);
 		glutAddMenuEntry("Occlusion Based on Clipping [On/Off]", 9);
 		glutAddMenuEntry("Invert Clipping [On/Off]", 10);
-	
+		glutAddMenuEntry("Image-Based Lighting [On/Off]", 11);
+
 	thresholdMenuID = glutCreateMenu(thresholdMenu);
 		glutAddMenuEntry("Change Early Ray Termination", 0);
 		glutAddMenuEntry("Change Step Size (Raycasting)", 1);
 		glutAddMenuEntry("Change Iso Surface", 2);
 		glutAddMenuEntry("Change Ks (Context-Preserving VR)", 3);
 		glutAddMenuEntry("Change Kt (Context-Preserving VR)", 4);
-		glutAddMenuEntry("Change Curvature Weight (Ghosted Views)", 5);
-		glutAddMenuEntry("Change Distance Fall Off Weight (Ghosted Views)", 6);
-		glutAddMenuEntry("Change Focus Radius (Ghosted Views)", 7);
-		glutAddMenuEntry("Change Clipping Distance Fall Off Weight (Ghosted Views)", 8);
-		glutAddMenuEntry("Change Gray Level Weight (Ghosted Views)", 9);
+		glutAddMenuEntry("Change Curvature Weight (Contextual Anatomic Mimesis)", 5);
+		glutAddMenuEntry("Change Distance Fall Off Weight (Contextual Anatomic Mimesis)", 6);
+		glutAddMenuEntry("Change Focus Radius (Contextual Anatomic Mimesis)", 7);
+		glutAddMenuEntry("Change Clipping Distance Fall Off Weight (Smooth Contours)", 8);
+		glutAddMenuEntry("Change Gray Level Weight (Visible Background for CT Data)", 9);
 
 	clippingMenuID = glutCreateMenu(clippingMenu);
 		glutAddMenuEntry("Change Clipping Plane Right X (Medical Volume)", 0); //inverted (also in specialKeyboard)
@@ -1694,9 +1785,14 @@ void createMenu()
 		glutAddMenuEntry("Simple Blending [On/Off]", 0);
 		glutAddMenuEntry("Curvature Blending [On/Off]", 1);
 		glutAddMenuEntry("Distance Falloff Blending [On/Off]", 2);
-		glutAddMenuEntry("Clipping-based Blending [On/Off]", 3);
-		glutAddMenuEntry("Subtraction Mask Blending [On/Off]", 4);
-		glutAddMenuEntry("Subtraction Mask Blending Case 2 [On/Off]", 5);
+		glutAddMenuEntry("Smooth Contours [On/Off]", 3);
+		glutAddMenuEntry("Visible Background for CT Data [On/Off]", 4);
+		glutAddMenuEntry("Visible Background for MRI Data [On/Off]", 5);
+
+	imageBasedLightingMenuID = glutCreateMenu(imageBasedLightingMenu);
+		glutAddMenuEntry("Change Diffuse Component", 0);
+		glutAddMenuEntry("Change Specular Component", 1);
+		glutAddMenuEntry("Change Shininess Component", 2);
 
 	otherFunctionsMenuID = glutCreateMenu(otherFunctionsMenu);
 		glutAddMenuEntry("Save Model", 0);
@@ -1710,9 +1806,40 @@ void createMenu()
 		glutAddSubMenu("Threshold", thresholdMenuID);
 		glutAddSubMenu("Clipping", clippingMenuID);
 		glutAddSubMenu("Blending Mode", blendingMenuID);
+		glutAddSubMenu("Image-based Lighting", imageBasedLightingMenuID);
 		glutAddSubMenu("Other Functions", otherFunctionsMenuID);
 
 		glutAttachMenu(GLUT_RIGHT_BUTTON);
+
+}
+
+void initVolumeRenderingParameters()
+{
+
+	vrparams.stepSize = 0.008;//1.0/50.0;
+	vrparams.earlyRayTerminationThreshold = 0.95;
+	vrparams.kt = 1;
+	vrparams.ks = 0;
+	vrparams.stochasticJithering = false;
+	vrparams.triCubicInterpolation = false;
+	vrparams.MIP = false;
+	vrparams.gradientByForwardDifferences = false;
+	vrparams.NonPolygonalIsoSurface = false;
+	vrparams.transferFunctionOn = false;
+	vrparams.BlinnPhongShadingOn = false;
+	vrparams.isoSurfaceThreshold = 0.1;
+	//Inverted because of the view
+	vrparams.clippingPlane = true;
+	vrparams.inverseClipping = false;
+	vrparams.clippingOcclusion = false;
+	vrparams.clippingPlaneLeftX = 0.0;
+	vrparams.clippingPlaneRightX = 1.0;
+	vrparams.clippingPlaneUpY = 1.0;
+	vrparams.clippingPlaneDownY = 0.0;
+	vrparams.clippingPlaneFrontZ = 0.0;
+	vrparams.clippingPlaneBackZ = 1.0;
+	//ibl
+	vrparams.useIBL = false;
 
 }
 
@@ -1726,7 +1853,7 @@ void init()
 	
 	//buffer objects
 	if(texVBO[0] == 0)
-		glGenTextures(25, texVBO);
+		glGenTextures(30, texVBO);
 	if(meshVBO[0] == 0)
 		glGenBuffers(4, meshVBO);
 	if(quadVBO[0] == 0)
@@ -1739,8 +1866,10 @@ void init()
 		glGenFramebuffers(1, &frontQuadFrameBuffer);
 	if(backQuadFrameBuffer == 0)
 		glGenFramebuffers(1, &backQuadFrameBuffer);
-	if(subtractionFrameBuffer == 0)
-		glGenFramebuffers(1, &subtractionFrameBuffer);
+	if(contoursFrameBuffer == 0)
+		glGenFramebuffers(1, &contoursFrameBuffer);
+	if(gaussianFrameBuffer == 0)
+		glGenFramebuffers(1, &gaussianFrameBuffer);
 
 	myGLImageViewer = new MyGLImageViewer();
 	myGLCloudViewer = new MyGLCloudViewer();
@@ -1791,28 +1920,8 @@ void init()
 		
 		myGLCloudViewer->loadVBOQuad(quadVBO, 1.0f/vrparams.scaleWidth, 1.0f/vrparams.scaleHeight, 1.0f/vrparams.scaleDepth);
 
-		//initialize some parameters
-		vrparams.stepSize = 0.008;//1.0/50.0;
-		vrparams.earlyRayTerminationThreshold = 0.95;
-		vrparams.kt = 1;
-		vrparams.ks = 0;
-		vrparams.stochasticJithering = false;
-		vrparams.triCubicInterpolation = false;
-		vrparams.MIP = false;
-		vrparams.gradientByForwardDifferences = false;
-		vrparams.NonPolygonalIsoSurface = false;
-		vrparams.isoSurfaceThreshold = 0.1;
-		//Inverted because of the view
-		vrparams.clippingPlane = true;
-		vrparams.inverseClipping = false;
-		vrparams.clippingOcclusion = false;
-		vrparams.clippingPlaneLeftX = 0.0;
-		vrparams.clippingPlaneRightX = 1.0;
-		vrparams.clippingPlaneUpY = 1.0;
-		vrparams.clippingPlaneDownY = 0.0;
-		vrparams.clippingPlaneFrontZ = 0.0;
-		vrparams.clippingPlaneBackZ = 1.0;
-		
+		initVolumeRenderingParameters();
+
 		createMenu();
 	
 	}
@@ -1821,13 +1930,15 @@ void init()
 	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, REAL_DEPTH_FROM_DEPTHBUFFER_BO, windowWidth, windowHeight);
 	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, FRONT_QUAD_DEPTH_FBO, windowWidth, windowHeight);
 	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, BACK_QUAD_DEPTH_FBO, windowWidth, windowHeight);
-	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, SUBTRACTION_MASK_DEPTH_FBO, windowWidth, windowHeight);
-
+	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, CONTOURS_DEPTH_FBO, windowWidth, windowHeight);
+	myGLImageViewer->loadDepthComponentTexture(NULL, texVBO, GAUSSIAN_MASK_DEPTH_FBO, windowWidth, windowHeight);
+	
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, VIRTUAL_RGB_BO, windowWidth/2, windowHeight/2);
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, REAL_RGB_FROM_FBO, windowWidth/2, windowHeight/2);
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, FRONT_QUAD_RGB_FBO, windowWidth/2, windowHeight/2);
 	myGLImageViewer->loadRGBTexture(NULL, texVBO, BACK_QUAD_RGB_FBO, windowWidth/2, windowHeight/2);
-	myGLImageViewer->loadRGBTexture(NULL, texVBO, SUBTRACTION_MASK_FBO, windowWidth/2, windowHeight/2);
+	myGLImageViewer->loadRGBTexture(NULL, texVBO, CONTOURS_RGB_FBO, windowWidth/2, windowHeight/2);
+	myGLImageViewer->loadRGBTexture(NULL, texVBO, GAUSSIAN_MASK_FBO, windowWidth/2, windowHeight/2);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, virtualFrameBuffer);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[VIRTUAL_DEPTH_BO], 0);
@@ -1857,9 +1968,16 @@ void init()
 	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 		std::cout << "FBO OK" << std::endl;
 
-	glBindFramebuffer(GL_FRAMEBUFFER, subtractionFrameBuffer);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[SUBTRACTION_MASK_DEPTH_FBO], 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[SUBTRACTION_MASK_FBO], 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, contoursFrameBuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[CONTOURS_DEPTH_FBO], 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[CONTOURS_RGB_FBO], 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+		std::cout << "FBO OK" << std::endl;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, gaussianFrameBuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texVBO[GAUSSIAN_MASK_DEPTH_FBO], 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texVBO[GAUSSIAN_MASK_FBO], 0);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	if(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 		std::cout << "FBO OK" << std::endl;
@@ -1877,18 +1995,26 @@ void releaseObjects() {
   delete reconstruction;
   delete myGLImageViewer;
   delete myGLCloudViewer;
+
   if(ARVolumetric) {
 	  delete medicalVolume;
 	  delete minMaxOctree;
 	  delete transferFunction;
 	  delete triCubicInterpolationPreFilter;
   }
+
   if(integrateColors)
 	  delete coloredReconstructionMediator;
   if(isHeadPoseEstimationEnabled)
 	  delete headPoseEstimationMediator;
   if(hasFaceDetection)
 	  delete faceDetector;
+  
+  if(isIBLEnabled) {
+      delete hdrImage;
+	  delete lightProbeCapture;
+  }
+
   delete [] clippedImage;
   cvReleaseImage(&image);
   cvReleaseImage(&grayImage);
@@ -1941,18 +2067,17 @@ int main(int argc, char **argv) {
 	glutMouseFunc(mouse);
 	glutSpecialFunc(specialKeyboard);
 
-	initShader("Shaders/Phong", 0);
-	initShader("Shaders/Occlusion", 1);
-	initShader("Shaders/VRBlendRaycasting", 2);
-	initShader("Shaders/VRContextPreservingPreIntegrationRaycasting", 3);
-	initShader("Shaders/VRPreIntegrationRaycasting", 4);
-	initShader("Shaders/VRLocalIlluminationPreIntegrationRaycasting", 5);
-	initShader("Shaders/VRNonPolygonalRaycasting", 6);
-	initShader("Shaders/VRImage", 7);
-	initShader("Shaders/VRBinaryRaycasting", 8);
+	initShader("Shaders/Phong", PHONG_SHADER);
+	initShader("Shaders/Occlusion", OCCLUSION_SHADER);
+	initShader("Shaders/VolumeRendering", VOLUME_RENDERING_SHADER);
+	initShader("Shaders/VRContextPreservingPreIntegrationRaycasting", ILLUSTRATIVE_RENDERING_SHADER);
+	initShader("Shaders/BinarySobel", SOBEL_SHADER);
+	initShader("Shaders/GaussianBlurX", GAUSSIAN_BLUR_X_SHADER);
+	initShader("Shaders/GaussianBlurY", GAUSSIAN_BLUR_Y_SHADER);
+	initShader("Shaders/VRImage", IMAGE_RENDERING_SHADER);
 	
-	myGLCloudViewer->setProgram(shaderProg[0]);
-	myGLImageViewer->setProgram(shaderProg[1]);
+	myGLCloudViewer->setProgram(shaderProg[PHONG_SHADER]);
+	myGLImageViewer->setProgram(shaderProg[OCCLUSION_SHADER]);
 	
 	glutMainLoop();
 

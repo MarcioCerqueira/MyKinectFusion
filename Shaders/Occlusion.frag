@@ -12,12 +12,12 @@ uniform int ARFromVolumeRendering;
 uniform int alphaBlending;
 uniform int ghostViewBasedOnCurvatureMap;
 uniform int ghostViewBasedOnDistanceFalloff;
-uniform int ghostViewBasedOnClipping;
-uniform int ghostViewBasedOnSubtractionMaskCase1;
-uniform int ghostViewBasedOnSubtractionMaskCase2;
+uniform int ghostViewBasedOnSmoothContours;
+uniform int ghostViewBasedOnVisibleBackgroundForCTData;
+uniform int ghostViewBasedOnVisibleBackgroundForMRIData;
 uniform float curvatureWeight;
 uniform float distanceFalloffWeight;
-uniform float clippingWeight;
+uniform float smoothContoursWeight;
 uniform float grayLevelWeight;
 uniform vec2 focusPoint;
 uniform float focusRadius;
@@ -52,11 +52,19 @@ vec4 computeFragmentColorARFromVolumeRendering(vec4 realDepth, vec4 virtualDepth
 		return realRGB;
 	else if(virtualRGB.r == 0.0 && virtualRGB.g == 0.0 && virtualRGB.b == 0.0)
 		return realRGB;
-	else if((virtualDepth.r - threshold) < realDepth.r && distance(gl_FragCoord.xy, focusPoint) < focusRadius)
-		return virtualRGB * (1 - alpha) + realRGB * alpha;
-	else if(realDepth.r == 0.0)
-		return virtualRGB * (1 - alpha) + realRGB * alpha;
-	else
+	else if((virtualDepth.r - threshold) < realDepth.r) {
+		if(ghostViewBasedOnDistanceFalloff == 1 || ghostViewBasedOnCurvatureMap == 1) {
+			if(distance(gl_FragCoord.xy, focusPoint) < focusRadius)
+				return virtualRGB * (1 - alpha) + realRGB * alpha;
+		} else
+			return virtualRGB * (1 - alpha) + realRGB * alpha;
+	} else if(realDepth.r == 0.0) {
+		if(ghostViewBasedOnDistanceFalloff == 1 || ghostViewBasedOnCurvatureMap == 1) {
+			if(distance(gl_FragCoord.xy, focusPoint) < focusRadius)
+				return virtualRGB * (1 - alpha) + realRGB * alpha;
+		} else
+			return virtualRGB * (1 - alpha) + realRGB * alpha;
+	} else
 		return realRGB;
 
 }
@@ -117,9 +125,8 @@ void main (void)
 			alpha = texture2D(curvatureMap, gl_TexCoord[0].st).r * curvatureWeight;
 		if(ghostViewBasedOnDistanceFalloff == 1)
 			alpha = max(alpha, pow(distance(gl_FragCoord.xy, focusPoint)/focusRadius, distanceFalloffWeight));
-		if(ghostViewBasedOnClipping == 1) {
-			alpha = max(alpha, texture2D(contoursMap, gl_TexCoord[0].st).r * clippingWeight);
-		}
+		if(ghostViewBasedOnSmoothContours == 1)
+			alpha = max(alpha, texture2D(contoursMap, gl_TexCoord[0].st).r * smoothContoursWeight);
 	}
 
 	alpha = clamp(alpha, 0.0, 1.0);
@@ -129,9 +136,9 @@ void main (void)
 	else if(ARFromKinectFusionVolume)
 		fragColor = computeFragmentColorARFromKinectFusionVolume(realDepth, virtualDepth, realRGB, virtualRGB, alpha, threshold);
 	else {
-		if(ghostViewBasedOnSubtractionMaskCase1 == 0 && ghostViewBasedOnSubtractionMaskCase2 == 0)
+		if(ghostViewBasedOnVisibleBackgroundForCTData == 0 && ghostViewBasedOnVisibleBackgroundForMRIData == 0)
 			fragColor = computeFragmentColorARFromVolumeRendering(realDepth, virtualDepth, realRGB, virtualRGB, alpha, threshold);
-		else if(ghostViewBasedOnSubtractionMaskCase1 == 1) {
+		else if(ghostViewBasedOnVisibleBackgroundForCTData == 1) {
 			vec4 backgroundRGB = texture2D(backgroundMap, gl_TexCoord[0].st);
 			vec4 subtractionRGB;
 			float grayLevel = (virtualRGB.r + virtualRGB.g + virtualRGB.b) / 3;
@@ -151,5 +158,5 @@ void main (void)
 	}
 
 	gl_FragColor = fragColor;
-
+	//gl_FragColor = texture2D(contoursMap, gl_TexCoord[0].st);
 }

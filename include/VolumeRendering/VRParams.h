@@ -21,6 +21,8 @@ typedef struct VRParams
 	int rotationX;
 	int rotationY;
 	int rotationZ;
+	bool transferFunctionOn;
+	bool BlinnPhongShadingOn;
 	bool stochasticJithering;
 	bool triCubicInterpolation;
 	bool MIP;
@@ -37,6 +39,8 @@ typedef struct VRParams
 	float clippingPlaneDownY;
 	float clippingPlaneFrontZ;
 	float clippingPlaneBackZ;
+	//ibl
+	bool useIBL;
 } VRParams;
 
 #endif

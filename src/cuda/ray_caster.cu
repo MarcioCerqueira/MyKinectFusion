@@ -67,7 +67,7 @@ namespace pcl
       Mat33 Rcurr;
       float3 tcurr;
 
-      float time_step;
+      mutable float time_step;
       float3 volume_size;
 
       float3 cell_size;
@@ -221,6 +221,8 @@ namespace pcl
           if (tsdf_prev < 0.f && tsdf > 0.f)
             break;
 
+	      if (tsdf > 0.f && tsdf < 0.5f && hasClipping)
+			time_step = 6;
 
           if (tsdf_prev > 0.f && tsdf < 0.f)           //zero crossing
           {

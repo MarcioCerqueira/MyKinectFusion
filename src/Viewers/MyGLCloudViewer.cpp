@@ -310,7 +310,7 @@ void MyGLCloudViewer::loadIndices(int *indices, float *pointCloud)
 		pixelY1 = (y + 1) * 640 + x;
 		pixelX1Y1 = (y + 1) * 640 + x + 1;
 
-		if(pointCloud[pixel * 3 + 2] == 0 || pointCloud[pixelX1 * 3 + 2] == 0 || pointCloud[pixelY1 * 3 + 2] == 0 || 
+		if(pointCloud[pixel * 3 + 2] < 200 || pointCloud[pixelX1 * 3 + 2] < 200 || pointCloud[pixelY1 * 3 + 2] < 200 || 
 			pointCloud[pixel * 3 + 2] != pointCloud[pixel * 3 + 2] || pointCloud[pixelX1 * 3 + 2] != pointCloud[pixelX1 * 3 + 2] || pointCloud[pixelY1 * 3 + 2]
 			!= pointCloud[pixelY1 * 3 + 2])
 				continue;
@@ -319,7 +319,7 @@ void MyGLCloudViewer::loadIndices(int *indices, float *pointCloud)
 		indices[point * 6 + 1] = pixelY1;
 		indices[point * 6 + 2] = pixelX1;
 		
-		if(pointCloud[pixelX1 * 3 + 2] == 0 || pointCloud[pixelY1 * 3 + 2] == 0 || pointCloud[pixelX1Y1 * 3 + 2] == 0 ||
+		if(pointCloud[pixelX1 * 3 + 2] < 200 || pointCloud[pixelY1 * 3 + 2] < 200 || pointCloud[pixelX1Y1 * 3 + 2] < 200 ||
 			pointCloud[pixelX1 * 3 + 2] != pointCloud[pixelX1 * 3 + 2] || pointCloud[pixelY1 * 3 + 2] != pointCloud[pixelY1 * 3 + 2] || 
 			pointCloud[pixelX1Y1 * 3 + 2] != pointCloud[pixelX1Y1 * 3 + 2])
 				continue;

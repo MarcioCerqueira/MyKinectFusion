@@ -20,12 +20,12 @@ typedef struct AROcclusionParams
 	bool alphaBlending;
 	bool ghostViewBasedOnCurvatureMap;
 	bool ghostViewBasedOnDistanceFalloff;
-	bool ghostViewBasedOnClipping;
-	bool ghostViewBasedOnSubtractionMaskCase1;
-	bool ghostViewBasedOnSubtractionMaskCase2;
+	bool ghostViewBasedOnSmoothContours;
+	bool ghostViewBasedOnVisibleBackgroundForCTData;
+	bool ghostViewBasedOnVisibleBackgroundForMRIData;
 	float curvatureWeight;
 	float distanceFalloffWeight;
-	float clippingWeight;
+	float smoothContoursWeight;
 	float grayLevelWeight;
 	float focusPoint[2];
 	float focusRadius;
