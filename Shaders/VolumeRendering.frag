@@ -173,9 +173,10 @@ vec4 computeIllumination(vec4 scalar, vec3 position)
 		vec3 L = normalize(gl_LightSource[0].position.xyz - v); 
 		vec3 V = normalize(-v);
 
-		if(useIBL == 1)
-			scalar.rgb += diffuseIBL(V) + specularIBL(N, V);
-		else
+		if(useIBL == 1) {
+			if(N.x > -1 && N.y > -1 && N.z > -1)
+				scalar.rgb += diffuseIBL(N) + specularIBL(N, V);
+		} else
 			scalar.rgb += BlinnPhongShading(L, N, V).rgb;
 
 	}
@@ -347,7 +348,8 @@ void main (void)
 
 				if(transferFunctionOn == 1) {
 					//Save previous scalar value
-					scalar.x = scalar.y;
+					//scalar.x = scalar.y;
+					scalar.x = value.a;
 				}
 
 			}

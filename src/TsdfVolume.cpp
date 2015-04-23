@@ -70,7 +70,7 @@ void TsdfVolume::raycast(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& 
 	} else if(hasClippingPlane) {
 	
 		device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
-			globalPreviousPointCloud->getNormalMaps()[0], clippingPlane);
+			globalPreviousPointCloud->getNormalMaps()[0], clippingPlane, clippingMode);
 
 	} else {
 
@@ -85,22 +85,6 @@ void TsdfVolume::raycast(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& 
       device::resizeNMap (globalPreviousPointCloud->getNormalMaps()[i-1], globalPreviousPointCloud->getNormalMaps()[i]);
 
     }
-
-}
-
-void TsdfVolume::raycastBasedOnClipping(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& tvecs, device::Intr& intrinsics, float trancDist, 
-	MyPointCloud *globalPreviousPointCloud, int globalTime) {
-
-	Matrix3frm Rcurr = rmats[globalTime - 1]; //  [Ri|ti] - pos of camera, i.e.
-    Vector3f tcurr = tvecs[globalTime - 1]; //  transform from camera to global coo space for (i-1)th camera pose
-
-	device::Mat33& device_Rcurr = device_cast<device::Mat33> (Rcurr);
-    float3& device_tcurr = device_cast<float3>(tcurr);
-
-	float3 device_volume_size = device_cast<float3>(volumeSize_);
-
-	device::raycast(intrinsics, device_Rcurr, device_tcurr, trancDist, device_volume_size, volume_, globalPreviousPointCloud->getVertexMaps()[0], 
-		globalPreviousPointCloud->getNormalMaps()[0], clippingPlane);
 
 }
 

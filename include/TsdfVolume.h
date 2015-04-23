@@ -27,8 +27,6 @@ public:
 		float trancDist, DeviceArray2D<float>& depthRawScaled, int globalTime);
 	void raycast(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& tvecs, device::Intr& intrinsics, float trancDist, MyPointCloud *globalPreviousPointCloud,
 		int globalTime);
-	void raycastBasedOnClipping(std::vector<Matrix3frm>& rmats, std::vector<Vector3f>& tvecs, device::Intr& intrinsics, float trancDist, MyPointCloud *globalPreviousPointCloud,
-		int globalTime);
 	DeviceArray<PointXYZ> fetchCloud(DeviceArray<PointXYZ>& cloud_buffer);
 
 	//10 * 1000 * 1000
@@ -93,6 +91,8 @@ public:
 	void reset() {  device::initVolume<volume_elem_type> (volume_); }
 	
 	bool hasClippingPlane;
+	int clippingMode;
+
 private:
 	Eigen::Vector3f volumeSize_;
 	DeviceArray2D<int> volume_;

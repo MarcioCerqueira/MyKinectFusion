@@ -1,12 +1,12 @@
 #include "ImageBasedLighting/HDR/LightProbeCapture.h"
 
-LightProbeCapture::LightProbeCapture(int cameraID) {
+LightProbeCapture::LightProbeCapture(int cameraID, int lightProbeSize) {
 
 	capture = new cv::VideoCapture(cameraID);
 	if(!capture->isOpened()) std::cout << "Capture error" << std::endl;
 	lightProbeCenter[0] = 320;
 	lightProbeCenter[1] = 240;
-	lightProbeSize = 256;
+	this->lightProbeSize = lightProbeSize;
 	croppedImage = cv::Mat(lightProbeSize, lightProbeSize, CV_8UC3);
 
 }

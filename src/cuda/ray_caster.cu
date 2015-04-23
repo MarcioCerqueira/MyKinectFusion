@@ -85,6 +85,7 @@ namespace pcl
 
 	  ClippingPlane clippingPlane;
 	  bool hasClipping;
+	  int clippingMode;
 
       __device__ __forceinline__ float3
       get_ray_next (int x, int y) const
@@ -221,8 +222,14 @@ namespace pcl
           if (tsdf_prev < 0.f && tsdf > 0.f)
             break;
 
-	      if (tsdf > 0.f && tsdf < 0.5f && hasClipping)
-			time_step = 6;
+	      if (tsdf > 0.f && tsdf < 0.5f && hasClipping) {
+			if(clippingMode == 0)
+				time_step = time_step;
+			else if(clippingMode == 1)
+				time_step = 6;
+			else
+				time_step = 1;
+		  }
 
           if (tsdf_prev > 0.f && tsdf < 0.f)           //zero crossing
           {
@@ -394,7 +401,7 @@ void
 pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr, 
                       float tranc_dist, const float3& volume_size,
                       const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, 
-					  ClippingPlane& clipPlane)
+					  ClippingPlane& clipPlane, int clippingMode)
 {
   RayCaster rc;
 
@@ -421,6 +428,7 @@ pcl::device::raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr,
   rc.hasImageError = false;
   rc.hasClipping = true;
   rc.clippingPlane = clipPlane;
+  rc.clippingMode = clippingMode;
 
   dim3 block (RayCaster::CTA_SIZE_X, RayCaster::CTA_SIZE_Y);
   dim3 grid (divUp (rc.cols, block.x), divUp (rc.rows, block.y));

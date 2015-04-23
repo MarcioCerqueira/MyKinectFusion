@@ -56,12 +56,16 @@ vec4 computeFragmentColorARFromVolumeRendering(vec4 realDepth, vec4 virtualDepth
 		if(ghostViewBasedOnDistanceFalloff == 1 || ghostViewBasedOnCurvatureMap == 1) {
 			if(distance(gl_FragCoord.xy, focusPoint) < focusRadius)
 				return virtualRGB * (1 - alpha) + realRGB * alpha;
+			else
+				return realRGB;
 		} else
 			return virtualRGB * (1 - alpha) + realRGB * alpha;
 	} else if(realDepth.r == 0.0) {
 		if(ghostViewBasedOnDistanceFalloff == 1 || ghostViewBasedOnCurvatureMap == 1) {
 			if(distance(gl_FragCoord.xy, focusPoint) < focusRadius)
 				return virtualRGB * (1 - alpha) + realRGB * alpha;
+			else
+				return realRGB;
 		} else
 			return virtualRGB * (1 - alpha) + realRGB * alpha;
 	} else
@@ -126,11 +130,11 @@ void main (void)
 		if(ghostViewBasedOnDistanceFalloff == 1)
 			alpha = max(alpha, pow(distance(gl_FragCoord.xy, focusPoint)/focusRadius, distanceFalloffWeight));
 		if(ghostViewBasedOnSmoothContours == 1)
-			alpha = max(alpha, texture2D(contoursMap, gl_TexCoord[0].st).r * smoothContoursWeight);
+			alpha = max(alpha, (1.0 - texture2D(contoursMap, gl_TexCoord[0].st).r) * smoothContoursWeight);
 	}
 
 	alpha = clamp(alpha, 0.0, 1.0);
-
+	
 	if(ARPolygonal)
 		fragColor = computeFragmentColorARPolygonal(realDepth, virtualDepth, realRGB, virtualRGB, alpha, threshold);
 	else if(ARFromKinectFusionVolume)
@@ -152,11 +156,12 @@ void main (void)
 		} else {
 			vec4 backgroundRGB = texture2D(backgroundMap, gl_TexCoord[0].st);
 			vec4 subtractionRGB = texture2D(subtractionMap, gl_TexCoord[0].st);
-			threshold = 0.25; //better visual quality, worst occlusion handling :(
+			threshold = 0.5; //better visual quality, worst occlusion handling :(
 			fragColor = computeFragmentColorARFromVolumeRendering(realDepth, virtualDepth, realRGB, virtualRGB, alpha, threshold, backgroundRGB, subtractionRGB);
 		}
 	}
 
 	gl_FragColor = fragColor;
 	//gl_FragColor = texture2D(contoursMap, gl_TexCoord[0].st);
+
 }

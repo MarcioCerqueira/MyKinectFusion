@@ -173,7 +173,7 @@ int firstSlice, lastSlice;
 char volumetricPathExtension[3];
 bool ARVolumetric = false;
 VRParams vrparams;
-int VRShaderID = 2;
+int VRShaderID = VOLUME_RENDERING_SHADER;
 
 //AR Configuration (General)
 bool ARKinectFusionVolume = true;
@@ -215,6 +215,7 @@ unsigned char *clippedImage;
 IplImage *image;
 IplImage *grayImage;
 cv::Mat hdrMap;
+int lightProbeSize = 192;
 
 void calculateFPS() {
 
@@ -485,12 +486,12 @@ void loadArguments(int argc, char **argv, Reconstruction *reconstruction)
 		hdrParams.diffuseScaleFactor = 0.07;
 		hdrParams.specularScaleFactor = 1;
 	
-		hdrImage = new HDRImage(256, 256);
+		hdrImage = new HDRImage(lightProbeSize, lightProbeSize);
 		hdrImage->computeCoordinates();
 		hdrImage->computeDomegaProduct();
 		hdrImage->setScale(1);
 
-		lightProbeCapture = new LightProbeCapture(hdrParams.cameraID);
+		lightProbeCapture = new LightProbeCapture(hdrParams.cameraID, lightProbeSize);
 		
 	}
 	
@@ -584,22 +585,13 @@ void loadARDepthDataBasedOnDepthMaps()
 void computeVolumeContours()
 {
 
-	glBindFramebuffer(GL_FRAMEBUFFER, contoursFrameBuffer);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glViewport(0, 0, windowWidth/2, windowHeight/2);
-	glMatrixMode(GL_PROJECTION);          
-	glLoadIdentity();    
-	myGLImageViewer->setProgram(shaderProg[SOBEL_SHADER]);
-	myGLImageViewer->drawRGBTextureOnShader(texVBO, VIRTUAL_RGB_BO, windowWidth, windowHeight);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	
 	glBindFramebuffer(GL_FRAMEBUFFER, gaussianFrameBuffer);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glViewport(0, 0, windowWidth/2, windowHeight/2);
 	glMatrixMode(GL_PROJECTION);          
 	glLoadIdentity();    
 	myGLImageViewer->setProgram(shaderProg[GAUSSIAN_BLUR_X_SHADER]);
-	myGLImageViewer->drawRGBTextureOnShader(texVBO, CONTOURS_RGB_FBO, windowWidth, windowHeight);
+	myGLImageViewer->drawRGBTextureOnShader(texVBO, VIRTUAL_RGB_BO, windowWidth, windowHeight);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, contoursFrameBuffer);
@@ -1248,6 +1240,15 @@ void keyboard(unsigned char key, int x, int y)
 	case (int)'h':
 		std::cout << rotationAngles[0] << " " << rotationAngles[1] << " " << rotationAngles[2] << std::endl;
 		break;
+	case (int)'0':
+		reconstruction->getTsdfVolume()->clippingMode = 0;
+		break;
+	case (int)'1':
+		reconstruction->getTsdfVolume()->clippingMode = 1;
+		break;
+	case (int)'2':
+		reconstruction->getTsdfVolume()->clippingMode = 2;
+		break;
 	default:
 		break;
 	}
@@ -1283,7 +1284,7 @@ void specialKeyboard(int key, int x, int y)
 		if(distanceFallOffWeightOn)
 			distanceFalloffWeight += 0.1;
 		if(smoothContoursWeightOn)
-			smoothContoursWeight += 0.5;
+			smoothContoursWeight += 1.0;
 		if(grayLevelWeightOn)
 			grayLevelWeight += 0.01;
 		if(clippingPlaneUpYOn) {
@@ -1338,7 +1339,7 @@ void specialKeyboard(int key, int x, int y)
 			if(distanceFalloffWeight < 0) distanceFalloffWeight = 0;
 		}
 		if(smoothContoursWeightOn) {
-			smoothContoursWeight -= 0.5;
+			smoothContoursWeight -= 1.0;
 			if(smoothContoursWeight < 0) smoothContoursWeight = 0;
 		}
 		if(grayLevelWeightOn) {

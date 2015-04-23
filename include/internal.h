@@ -360,7 +360,7 @@ namespace pcl
 
 	void 
     raycast (const Intr& intr, const Mat33& Rcurr, const float3& tcurr, float tranc_dist, const float3& volume_size, 
-             const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, ClippingPlane& clipPlane);
+             const PtrStep<volume_elem_type>& volume, MapArr& vmap, MapArr& nmap, ClippingPlane& clipPlane, int clippingMode);
 	/** \brief Renders 3D image of the scene
       * \param[in] vmap vetex map
       * \param[in] nmap normals map

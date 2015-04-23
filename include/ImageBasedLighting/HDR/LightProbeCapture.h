@@ -8,7 +8,7 @@ static int lightProbeCenter[2];
 class LightProbeCapture
 {
 public:
-	LightProbeCapture(int cameraID);
+	LightProbeCapture(int cameraID, int lightProbeSize);
 	~LightProbeCapture();
 	void captureSphericalMap();
 	cv::Mat getImage() { return croppedImage; }
