@@ -1,0 +1,11 @@
+F:\Volumes\Panoramix\
+TransferFunctions\Panoramix.mtf
+1
+288
+tif
+1
+1
+1
+0
+2
+1

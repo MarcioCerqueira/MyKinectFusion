@@ -1,0 +1,11 @@
+F:\Volumes\Knee\
+TransferFunctions\Knee.mtf
+1
+250
+tif
+1
+1
+1
+0
+1
+2
